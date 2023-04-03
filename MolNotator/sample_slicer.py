@@ -4,6 +4,11 @@ from tqdm import tqdm
 import pandas as pd
 from matchms.importing import load_from_mgf
 from matchms.exporting import save_as_mgf
+from MolNotator.trash import sample_slicer_export
+
+import multiprocessing as mp
+import time
+
 
 def sample_slicer(params : dict, ion_mode : str):
     """Splits the original spectrum file into several files, one for each sample.
@@ -31,6 +36,8 @@ def sample_slicer(params : dict, ion_mode : str):
         print('Ion mode must be either "NEG" or "POS"')
         return
 
+    
+
     # Create out folder
     if not os.path.exists(f'{out_path}') :
         os.mkdir(f'{out_path}')
@@ -47,15 +54,23 @@ def sample_slicer(params : dict, ion_mode : str):
     # MZmine mgf file
     mgf_file = list(load_from_mgf(f'{in_path}/{mgf_file}'))
     
-    # write the mgf files for each individual sample:
-    print('Slicing the MGF file into sample MGFs:')
-    for sample in tqdm(samples) :
-        new_mgf = list()
-        for i in csv_table.index :
-            if csv_table.loc[i, sample] > 0 :
-                new_mgf.append(mgf_file[csv_table.loc[i, "spec_id"]])
-        save_as_mgf(new_mgf, f'{out_path}{sample}')
-    return
+    slaves = min(len(samples), mp.cpu_count())
     
+    
+    pool = mp.Pool(slaves)
+    workers = [pool.apply_async(sample_slicer_export, args=(samples[i], csv_table, mgf_file, out_path)) for i in range(slaves)]
+
+    start = time.time()
+    
+    for w in tqdm(workers):
+        w.get()
+    
+    end = time.time()
+    print(end-start)
+    
+
+
+
 if __name__ == '__main__':
+    
     sample_slicer()
