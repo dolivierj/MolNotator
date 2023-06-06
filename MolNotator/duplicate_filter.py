@@ -39,15 +39,14 @@ def duplicate_filter(params : dict, ion_mode : str):
     
     if ion_mode == "NEG":
         csv_file = params['neg_csv']
-        spectrum_list= params['neg_mgf']
+        spectrum_file= params['neg_mgf']
         out_path= params['neg_out_0']
     elif ion_mode == "POS" :
         csv_file = params['pos_csv']
-        spectrum_list= params['pos_mgf']
+        spectrum_file= params['pos_mgf']
         out_path= params['pos_out_0']
     
     # Save mgf and csv file names for input
-    spectrum_file = spectrum_list
     csv_name = csv_file
     
     # create output dir:
@@ -56,7 +55,7 @@ def duplicate_filter(params : dict, ion_mode : str):
     
     # Load MZmine mgf and csv files
     print("Loading MGF and CSV files...")
-    spectrum_list = list(load_from_mgf(f'{params["input_dir"]}{spectrum_list}'))
+    spectrum_list = list(load_from_mgf(f'{params["input_dir"]}{spectrum_file}'))
     csv_file = pd.read_csv(f'{params["input_dir"]}{csv_file}', index_col = index_col)
     
     # Format columns with ion modes:

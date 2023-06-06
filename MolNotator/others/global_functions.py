@@ -1785,7 +1785,7 @@ def get_merged_tables(input_files, ion_mode : str, params : dict):
 
         # Add only new ions to the merged node table
         new_ions = list(set(node_table.index) - set(merged_node_table.index))
-        merged_node_table = merged_node_table.append(node_table.loc[new_ions], ignore_index = False)
+        merged_node_table = pd.concat([merged_node_table, node_table.loc[new_ions]], ignore_index=False)
 
         # Add only non-singleton edges
         edge_table = edge_table[edge_table['status'] != "singleton"]
@@ -1796,7 +1796,7 @@ def get_merged_tables(input_files, ion_mode : str, params : dict):
         
         # Only add these unique new IDs to the edge table
         new_edges = list(set(edge_table.index) - set(merged_edge_table.index))
-        merged_edge_table = merged_edge_table.append(edge_table.loc[new_edges], ignore_index = False)
+        merged_edge_table = pd.concat([merged_edge_table, edge_table.loc[new_edges]], ignore_index=False)
     
     # Sort tables 
     merged_node_table.sort_index(inplace = True)

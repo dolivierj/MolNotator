@@ -3,6 +3,7 @@
 process_mode : "BOTH" # If only one ion mode is used: "POS" or "NEG", if both modes : "BOTH"
 col_suffix: ".mzXML Peak area" # CSV file suffix for samples, typically "peak area.mzML".
 index_col: 'feature_id' # Spectrum ID in spectrum and CSV files (must be the same, if not, change in the CSV file)
+workers: 1 # Number of available CPUs for multiprocessing.
 pos_mgf: '200912_LDB_Thermo_POS.mgf' # Input MGF output for POS data
 pos_csv: '200912_LDB_Thermo_POS.csv' # Input CSV output for POS data
 neg_mgf: '200909_LDB_Thermo_NEG.mgf' # Input MGF output for NEG data

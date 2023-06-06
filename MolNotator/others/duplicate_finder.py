@@ -148,7 +148,9 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
                 if j == conflict_table.loc[i, "selected"] :
                     continue
                 tmp_duplicate_table.loc[j, "dropped"].remove(conflict_table.loc[i, "ion"])
-        duplicate_table = duplicate_table.append(tmp_duplicate_table, ignore_index = True)
+        
+        duplicate_table = pd.concat([duplicate_table, tmp_duplicate_table], ignore_index=True)
+        #duplicate_table = duplicate_table.append(tmp_duplicate_table, ignore_index = True)
     
     dup_size = list()
     for i in duplicate_table.index:

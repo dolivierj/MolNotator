@@ -28,6 +28,6 @@ def singleton_edges(node_table, edge_table):
     singleton_edge_table['node_2'] = singleton_nodes
     edge_table['status'] = ["frag_edge"]*len(edge_table)
     singleton_edge_table['status'] = ["singleton"]*len(singleton_edge_table)
-    edge_table = edge_table.append(singleton_edge_table, ignore_index = False, sort = False)
+    edge_table = pd.concat([edge_table, singleton_edge_table], ignore_index=True)
     edge_table.reset_index(drop = True, inplace = True)
     return edge_table

@@ -68,7 +68,8 @@ def adnotator(params : dict, ion_mode : str):
     
     adduct_table_primary = pd.read_csv("./params/" + adduct_table_primary, sep = "\t")
     adduct_table_secondary = pd.read_csv("./params/" + adduct_table_secondary, sep = "\t")
-    adduct_table_merged= adduct_table_primary.append(adduct_table_secondary, ignore_index = True)
+    
+    adduct_table_merged = pd.concat([adduct_table_primary, adduct_table_secondary], ignore_index=True)
     
     # Create output folder
     if not os.path.isdir(out_path_full) :
@@ -148,7 +149,7 @@ def adnotator(params : dict, ion_mode : str):
                                                                      params)
             
             # Add duplicates found previously to the duplicate table
-            duplicate_table = duplicate_table.append(tmp_duplicates, ignore_index = True)
+            duplicate_table = pd.concat([duplicate_table, tmp_duplicates], ignore_index=True)
             
             # Species rules points : award points for annotations that can be confirmed
             ion_hypotheses_table = species_rules(ion1_spec_id, ion_hypotheses_table,
@@ -173,7 +174,8 @@ def adnotator(params : dict, ion_mode : str):
 
             # Add the local results to the global merged table
             if len(merged_table_local.index) == 0 : continue
-            merged_table = merged_table.append(merged_table_local)
+        
+            merged_table = pd.concat([merged_table, merged_table_local], ignore_index=True)
             merged_table.reset_index(inplace = True, drop = True)
 
         # Produce the cohort table containing all ion hypotheses in the sample x
