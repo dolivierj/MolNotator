@@ -4,7 +4,7 @@ from tqdm import tqdm
 import pandas as pd
 from matchms.importing import load_from_mgf
 from matchms.exporting import save_as_mgf
-from MolNotator.trash import sample_slicer_export
+from MolNotator.utils import sample_slicer_export
 
 import multiprocessing as mp
 import time
