@@ -112,7 +112,7 @@ def duplicate_filter(params : dict, ion_mode : str):
     mgf_file_new.write_mgf(output_file_path = f'{out_path}{spectrum_file}')
     
     node_table_new.to_csv(f'{out_path}{csv_file}', index_label = index_col)
-    perc = round(100*(len(dropped_ions)/len(spectrum_list)),1)
+    perc = round(100*(len(dropped_ions)/len(spectrum_list.spectrum)),1)
     print('Export finished.')
-    print(f'{len(dropped_ions)} ions removed out of {len(spectrum_list)} ({perc}%)')
+    print(f'{len(dropped_ions)} ions removed out of {len(spectrum_list.spectrum)} ({perc}%)')
     return
