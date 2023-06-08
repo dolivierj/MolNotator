@@ -2,7 +2,6 @@
 import os
 import pandas as pd
 from pandas.core.common import flatten
-from MolNotator.others.spectrum_extractor import spectrum_extractor
 from MolNotator.others.duplicate_finder import duplicate_finder
 from MolNotator.utils import read_mgf_file
 from MolNotator.utils import Spectra
