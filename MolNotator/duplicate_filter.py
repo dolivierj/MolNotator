@@ -2,7 +2,13 @@
 import os
 import pandas as pd
 from matchms.importing import load_from_mgf
-from matchms.filtering import default_filters
+from matchms.filtering.add_precursor_mz import add_precursor_mz
+from matchms.filtering.correct_charge import correct_charge
+from matchms.filtering.derive_ionmode import derive_ionmode
+from matchms.filtering.interpret_pepmass import interpret_pepmass
+from matchms.filtering.make_charge_int import make_charge_int
+from matchms.filtering.make_ionmode_lowercase import make_ionmode_lowercase
+from matchms.filtering.set_ionmode_na_when_missing import set_ionmode_na_when_missing
 from matchms.exporting import save_as_mgf
 from pandas.core.common import flatten
 from MolNotator.others.spectrum_extractor import spectrum_extractor
@@ -10,7 +16,12 @@ from MolNotator.others.duplicate_finder import duplicate_finder
 
 
 def Spectrum_processing(s):
-    s = default_filters(s)
+    s = make_charge_int(s)
+    s = make_ionmode_lowercase(s)
+    s = set_ionmode_na_when_missing(s)
+    s = add_precursor_mz(s)
+    s = derive_ionmode(s)
+    s = correct_charge(s)
     return s
 
 def duplicate_filter(params : dict, ion_mode : str):

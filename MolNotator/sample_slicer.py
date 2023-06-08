@@ -51,12 +51,12 @@ def sample_slicer(params : dict, ion_mode : str):
     csv_table.columns = csv_table.columns.str.replace(params['col_suffix'], '.mgf', regex = False)
     
     # MZmine mgf file
-    mgf_file = list(load_from_mgf(f'{in_path}/{mgf_file}'))
+    mgf_list = list(load_from_mgf(f'{in_path}{mgf_file}'))
     
     cpu_count = min(len(samples), mp.cpu_count(), params['workers'])
     
     pool = mp.Pool(cpu_count)
-    workers = [pool.apply_async(sample_slicer_export, args=(samples[i], csv_table, mgf_file, out_path)) for i in range(cpu_count)]
+    workers = [pool.apply_async(sample_slicer_export, args=(samples[i], csv_table, mgf_list, out_path)) for i in range(cpu_count)]
 
     start = time.time()
     

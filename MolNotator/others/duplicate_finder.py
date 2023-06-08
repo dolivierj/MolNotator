@@ -80,9 +80,13 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
                 specid_2 = node_table.loc[ion_2, 'spec_id']
                 rt_2 = pool_table.loc[ion_2, f'{rt_field}']
                 mz_2 = pool_table.loc[ion_2, f'{mz_field}']
-                score, n_matches = modified_cosine.pair(spectrum_list[specid_1],
-                                                        spectrum_list[specid_2])
-                cos_table.append((ion_1, ion_2, score, n_matches, abs(mz_1 - mz_2),
+                score = modified_cosine.pair(spectrum_list[specid_1],
+                                             spectrum_list[specid_2])
+                cos_table.append((ion_1,
+                                  ion_2,
+                                  float(score['score']),
+                                  int(score['matches']),
+                                  abs(mz_1 - mz_2),
                                   abs(rt_1 - rt_2)))
         cos_table = pd.DataFrame(cos_table, columns = ['ion_1', 'ion_2', 'cos',
                                                        'matched_peaks', 'd_mz', 'd_rt'])
@@ -134,9 +138,10 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
                 tmp_scores = list()
                 for j in conflicts:
                     spec_id_j = node_table.loc[tmp_duplicate_table.loc[j, "kept"], "spec_id"]
-                    score, n_matches = modified_cosine.pair(spectrum_list[spec_id_i],
-                                                            spectrum_list[spec_id_j])
-                    tmp_scores.append(score*n_matches)
+                    score = modified_cosine.pair(spectrum_list[spec_id_i],
+                                                 spectrum_list[spec_id_j])
+
+                    tmp_scores.append(float(score['score'])*int(score['matches']))
                 selected_ions = tmp_scores.index(max(tmp_scores))
                 selected_ions = conflicts[selected_ions]
                 conflict_table.append((i, conflicts, selected_ions))
