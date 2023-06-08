@@ -20,7 +20,6 @@ def sample_slicer(params : dict, ion_mode : str):
     """
 
     # Load parameters
-    
     if ion_mode == "NEG":
         csv_file= params['neg_csv']
         mgf_file= params['neg_mgf']

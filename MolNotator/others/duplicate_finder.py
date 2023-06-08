@@ -1,8 +1,8 @@
 """duplicate_finder.py - duplicate_finder module for the duplicate_filter"""
 import sys
 import pandas as pd
-from matchms.similarity import ModifiedCosine
 from pandas.core.common import flatten
+from MolNotator.utils import spectrum_cosine_score
 
 def duplicate_finder(node_table, spectrum_list, params, ion_mode):
     """
@@ -33,7 +33,6 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
     cos_threshold = params['df_cos_threshold']
     rt_field = params['rt_field']
     mz_field = params['mz_field']
-    modified_cosine = ModifiedCosine(tolerance=mass_error)
     
     # If the retention time is in minutes
     if params['rt_unit'] == "m":
@@ -80,12 +79,14 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
                 specid_2 = node_table.loc[ion_2, 'spec_id']
                 rt_2 = pool_table.loc[ion_2, f'{rt_field}']
                 mz_2 = pool_table.loc[ion_2, f'{mz_field}']
-                score = modified_cosine.pair(spectrum_list[specid_1],
-                                             spectrum_list[specid_2])
+                score, matches = spectrum_cosine_score(spectrum_list.spectrum[specid_1],
+                                                       spectrum_list.spectrum[specid_2],
+                                                       tolerance = mass_error)
+
                 cos_table.append((ion_1,
                                   ion_2,
-                                  float(score['score']),
-                                  int(score['matches']),
+                                  score,
+                                  matches,
                                   abs(mz_1 - mz_2),
                                   abs(rt_1 - rt_2)))
         cos_table = pd.DataFrame(cos_table, columns = ['ion_1', 'ion_2', 'cos',
@@ -138,10 +139,12 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
                 tmp_scores = list()
                 for j in conflicts:
                     spec_id_j = node_table.loc[tmp_duplicate_table.loc[j, "kept"], "spec_id"]
-                    score = modified_cosine.pair(spectrum_list[spec_id_i],
-                                                 spectrum_list[spec_id_j])
+                    score, matches = spectrum_cosine_score(spectrum_list.spectrum[spec_id_i],
+                                                           spectrum_list.spectrum[spec_id_j],
+                                                           tolerance = mass_error)
+                    
 
-                    tmp_scores.append(float(score['score'])*int(score['matches']))
+                    tmp_scores.append(score*matches)
                 selected_ions = tmp_scores.index(max(tmp_scores))
                 selected_ions = conflicts[selected_ions]
                 conflict_table.append((i, conflicts, selected_ions))
@@ -155,7 +158,6 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
                 tmp_duplicate_table.loc[j, "dropped"].remove(conflict_table.loc[i, "ion"])
         
         duplicate_table = pd.concat([duplicate_table, tmp_duplicate_table], ignore_index=True)
-        #duplicate_table = duplicate_table.append(tmp_duplicate_table, ignore_index = True)
     
     dup_size = list()
     for i in duplicate_table.index:
