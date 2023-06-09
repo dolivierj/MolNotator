@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 from MolNotator.others.global_functions import *
-from MolNotator.utils import rt_slicer, read_mgf_file
+from MolNotator.utils import rt_slicer, read_mgf_file, cosine_validation
 
 def adnotator(params : dict, ion_mode : str):
     """
@@ -104,9 +104,8 @@ def adnotator(params : dict, ion_mode : str):
         node_table = pd.read_csv(f"{in_path_csv}{ion_mode}_{file_basename}_nodes.csv", 
                                 index_col = params['index_col'])
         subspectrum_file = in_path_spec + input_files.loc[x, "spectrum_file"]
-        spectrum_list = read_mgf_file(subspectrum_file)
-        # spectrum_list = list(load_from_mgf(subspectrum_file))
-        # spectrum_list = [Spectrum_processing(s) for s in spectrum_list]
+        spectrum_list = read_mgf_file(subspectrum_file,
+                                      ion_mode)
         
         # Create dataframes to store results
         duplicate_table = pd.DataFrame() # Stores duplicate spectra
@@ -140,11 +139,12 @@ def adnotator(params : dict, ion_mode : str):
                                                  coelution_table, params)
             
             # Cosine similarity are integrated to the scores of the hypotheses
-            ion_hypotheses_table, tmp_duplicates = cosine_validation(i, node_table, 
-                                                                     spectrum_list,
-                                                                     ion_hypotheses_table,
-                                                                     adduct_table_primary,
-                                                                     params)
+            ion_hypotheses_table, tmp_duplicates = cosine_validation(ion_1_idx = i,
+                                                                     node_table = node_table, 
+                                                                     spectrum_list = spectrum_list,
+                                                                     ion_hypotheses_table = ion_hypotheses_table,
+                                                                     adduct_table_primary = adduct_table_primary,
+                                                                     params = params)
             
             # Add duplicates found previously to the duplicate table
             duplicate_table = pd.concat([duplicate_table, tmp_duplicates], ignore_index=True)

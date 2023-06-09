@@ -1,8 +1,8 @@
 import pandas as pd
 
 def Solo_M1mHpC4H11N(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + mz - 72.081324
     mz_Cl = 34.968853 + mz - 72.081324
  
@@ -12,8 +12,8 @@ def Solo_M1mHpC4H11N(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Cl])
 
 def Solo_M1mHpHCOOH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + mz - 44.997654
     mz_Cl = 34.968853 + mz - 44.997654
  
@@ -23,8 +23,8 @@ def Solo_M1mHpHCOOH(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Cl])
 
 def Solo_M1m2HpNapHCOOH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + mz - 66.979600
     mz_Cl = 34.968853 + mz - 66.979600
     mz_m2HpNa = 20.97412 + mz - 66.979600
@@ -38,8 +38,8 @@ def Solo_M1m2HpNapHCOOH(prec_mass_error, ion_idx, spectrum_list):
 
 
 def Solo_M1m2HpNa(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + mz - 66.979600
  
     valid_H = peaks.between(mz_H - prec_mass_error, mz_H + prec_mass_error, inclusive = "both").sum() > 0
@@ -47,8 +47,8 @@ def Solo_M1m2HpNa(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H])
 
 def Solo_M1m2HpK(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + mz - 36.948058
  
     valid_H = peaks.between(mz_H - prec_mass_error, mz_H + prec_mass_error, inclusive = "both").sum() > 0
@@ -56,8 +56,8 @@ def Solo_M1m2HpK(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H])
 
 def Solo_M2mHpC4H11N(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 72.081324)/2
     mz_Cl = 34.968853 + (mz - 72.081324)/2
     mz_m2HpNa = 20.97412 + (mz - 72.081324)/2
@@ -69,8 +69,8 @@ def Solo_M2mHpC4H11N(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Cl, valid_m2HpNa])
 
 def Solo_M2mHpHCOOH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 44.997654)/2
     mz_Cl = 34.968853 + (mz - 44.997654)/2
     mz_m2HpNa = 20.97412 + (mz - 44.997654)/2
@@ -84,8 +84,8 @@ def Solo_M2mHpHCOOH(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Cl, valid_m2HpNa, valid_mHpHCOOH])
 
 def Solo_M2mH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz + 1.007825)/2
     mz_Cl = 34.968853 + (mz + 1.007825)/2
     mz_m2HpNa = 20.97412 + (mz + 1.007825)/2
@@ -97,8 +97,8 @@ def Solo_M2mH(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Cl, valid_m2HpNa])
 
 def Solo_M2pCl(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 34.968853)/2
     mz_Cl = 34.968853 + (mz - 34.968853)/2
     mz_m2HpNa = 20.97412 + (mz - 34.968853)/2
@@ -110,8 +110,8 @@ def Solo_M2pCl(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Cl, valid_m2HpNa])
 
 def Solo_M2m2HpNapHCOOH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 66.979600)/2
     mz_Cl = 34.968853 + (mz - 66.979600)/2
     mz_m2HpNa = 20.97412 + (mz - 66.979600)/2
@@ -125,8 +125,8 @@ def Solo_M2m2HpNapHCOOH(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Cl, valid_m2HpNa, valid_m2HpNapHCOOH])
 
 def Solo_M2m2HpNa(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 20.97412)/2
     mz_Cl = 34.968853 + (mz - 20.97412)/2
     mz_m2HpNa = 20.97412 + (mz - 20.97412)/2
@@ -140,8 +140,8 @@ def Solo_M2m2HpNa(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Cl, valid_m2HpNa, valid_m2HpNapHCOOH])
 
 def Solo_M2m2HpK(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 36.948058)/2
     mz_Cl = 34.968853 + (mz - 36.948058)/2
     mz_m2HpNa = 20.97412 + (mz - 36.948058)/2
@@ -157,8 +157,8 @@ def Solo_M2m2HpK(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Cl, valid_m2HpNa, valid_m2HpNapHCOOH, valid_m2HpK])
 
 def Solo_M3mH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz + 1.007825)/3
     mz_Cl = 34.968853 + (mz + 1.007825)/3
     mz_m2HpNa = 20.97412 + (mz + 1.007825)/3
@@ -187,8 +187,8 @@ def Solo_M3mH(prec_mass_error, ion_idx, spectrum_list):
                 valid_M2mH, valid_M2pCl, valid_M2m2HpNa, valid_M2m2HpNapHCOOH, valid_M2m2HpK])
 
 def Solo_M3pCl(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 34.968853)/3
     mz_Cl = 34.968853 + (mz - 34.968853)/3
     mz_m2HpNa = 20.97412 + (mz - 34.968853)/3
@@ -217,8 +217,8 @@ def Solo_M3pCl(prec_mass_error, ion_idx, spectrum_list):
                 valid_M2mH, valid_M2pCl, valid_M2m2HpNa, valid_M2m2HpNapHCOOH, valid_M2m2HpK])
 
 def Solo_M3m2HpNapHCOOH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 66.979600)/3
     mz_Cl = 34.968853 + (mz - 66.979600)/3
     mz_m2HpNa = 20.97412 + (mz - 66.979600)/3
@@ -247,8 +247,8 @@ def Solo_M3m2HpNapHCOOH(prec_mass_error, ion_idx, spectrum_list):
                 valid_M2mH, valid_M2pCl, valid_M2m2HpNa, valid_M2m2HpNapHCOOH, valid_M2m2HpK])
 
 def Solo_M3m2HpNa(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 20.97412)/3
     mz_Cl = 34.968853 + (mz - 20.97412)/3
     mz_m2HpNa = 20.97412 + (mz - 20.97412)/3
@@ -277,8 +277,8 @@ def Solo_M3m2HpNa(prec_mass_error, ion_idx, spectrum_list):
                 valid_M2mH, valid_M2pCl, valid_M2m2HpNa, valid_M2m2HpNapHCOOH, valid_M2m2HpK])
 
 def Solo_M4mH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz + 1.007825)/4
     mz_Cl = 34.968853 + (mz + 1.007825)/4
     mz_m2HpNa = 20.97412 + (mz + 1.007825)/4
@@ -319,8 +319,8 @@ def Solo_M4mH(prec_mass_error, ion_idx, spectrum_list):
                 valid_M3mH, valid_M3pCl, valid_M3m2HpNa, valid_M3m2HpNapHCOOH, valid_M3m2HpK])
 
 def Solo_M4pCl(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 34.968853)/4
     mz_Cl = 34.968853 + (mz - 34.968853)/4
     mz_m2HpNa = 20.97412 + (mz - 34.968853)/4
@@ -361,8 +361,8 @@ def Solo_M4pCl(prec_mass_error, ion_idx, spectrum_list):
                 valid_M3mH, valid_M3pCl, valid_M3m2HpNa, valid_M3m2HpNapHCOOH, valid_M3m2HpK])
 
 def Solo_M4m2HpNapHCOOH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 66.979600)/4
     mz_Cl = 34.968853 + (mz - 66.979600)/4
     mz_m2HpNa = 20.97412 + (mz - 66.979600)/4
@@ -403,8 +403,8 @@ def Solo_M4m2HpNapHCOOH(prec_mass_error, ion_idx, spectrum_list):
                 valid_M3mH, valid_M3pCl, valid_M3m2HpNa, valid_M3m2HpNapHCOOH, valid_M3m2HpK])
 
 def Solo_M4m2HpNa(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = -1.007825 + (mz - 20.97412)/4
     mz_Cl = 34.968853 + (mz - 20.97412)/4
     mz_m2HpNa = 20.97412 + (mz - 20.97412)/4
@@ -445,8 +445,8 @@ def Solo_M4m2HpNa(prec_mass_error, ion_idx, spectrum_list):
                 valid_M3mH, valid_M3pCl, valid_M3m2HpNa, valid_M3m2HpNapHCOOH, valid_M3m2HpK])
 
 def Solo_M2pH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 1.007825)/2
     mz_Na = 22.98977 + (mz - 1.007825)/2
     mz_K = 38.963708 + (mz - 1.007825)/2
@@ -468,8 +468,8 @@ def Solo_M2pH(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Na, valid_K, valid_HpCH3CN, valid_HpCH3OH, valid_NapCH3CN, valid_NapCH3OH, valid_KpCH3CN, valid_KpCH3OH])
 
 def Solo_M2pHpCH3CN(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 42.034374)/2
     mz_Na = 22.98977 + (mz - 42.034374)/2
     mz_K = 38.963708 + (mz - 42.034374)/2
@@ -493,8 +493,8 @@ def Solo_M2pHpCH3CN(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Na, valid_K, valid_HpCH3CN, valid_HpCH3OH, valid_NapCH3CN, valid_NapCH3OH, valid_KpCH3CN, valid_KpCH3OH])
 
 def Solo_M2pHpCH3OH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 33.034040)/2
     mz_Na = 22.98977 + (mz - 33.034040)/2
     mz_K = 38.963708 + (mz - 33.034040)/2
@@ -519,8 +519,8 @@ def Solo_M2pHpCH3OH(prec_mass_error, ion_idx, spectrum_list):
 
 
 def Solo_M2pHpHCOOH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 47.013304)/2
     mz_Na = 22.98977 + (mz - 47.013304)/2
     mz_K = 38.963708 + (mz - 47.013304)/2
@@ -544,8 +544,8 @@ def Solo_M2pHpHCOOH(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Na, valid_K, valid_HpCH3CN, valid_HpCH3OH, valid_NapCH3CN, valid_NapCH3OH, valid_KpCH3CN, valid_KpCH3OH])
 
 def Solo_M2pNH4(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 18.034374)/2
     mz_NH4 = 18.034374 + (mz - 18.034374)/2
     mz_Na = 22.98977 + (mz - 18.034374)/2
@@ -572,8 +572,8 @@ def Solo_M2pNH4(prec_mass_error, ion_idx, spectrum_list):
 
     
 def Solo_M2pNa(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 22.98977)/2
     mz_Na = 22.98977 + (mz - 22.98977)/2
     mz_NapCH3CN = 64.016319 + (mz - 22.98977)/2
@@ -585,8 +585,8 @@ def Solo_M2pNa(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Na, valid_NapCH3CN, valid_NapCH3OH])
 
 def Solo_M2pNapCH3OH(prec_mass_error, ion_idx, spectrum_list) : 
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 55.015985)/2
     mz_Na = 22.98977 + (mz - 55.015985)/2
     mz_NapCH3CN = 64.016319 + (mz - 55.015985)/2
@@ -598,8 +598,8 @@ def Solo_M2pNapCH3OH(prec_mass_error, ion_idx, spectrum_list) :
     return sum([valid_H, valid_Na, valid_NapCH3CN, valid_NapCH3OH])
 
 def Solo_M2pNapCH3CN(prec_mass_error, ion_idx, spectrum_list) : 
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 64.016319)/2
     mz_Na = 22.98977 + (mz - 64.016319)/2
     mz_NapCH3CN = 64.016319 + (mz - 64.016319)/2
@@ -611,8 +611,8 @@ def Solo_M2pNapCH3CN(prec_mass_error, ion_idx, spectrum_list) :
     return sum([valid_H, valid_Na, valid_NapCH3CN, valid_NapCH3OH])
 
 def Solo_M2pK(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 38.963708)/2
     mz_Na = 22.98977 + (mz - 38.963708)/2
     mz_K = 38.963708 + (mz - 38.963708)/2
@@ -623,8 +623,8 @@ def Solo_M2pK(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Na, valid_K])
 
 def Solo_M1pHpCH3CN(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + mz - 42.034374
     mz_Na = 22.98977 + mz - 42.034374
     mz_HpCH3OH = 33.034040 + mz - 42.034374
@@ -636,8 +636,8 @@ def Solo_M1pHpCH3CN(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Na, valid_HpCH3OH])
 
 def Solo_M1pHpCH3OH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + mz - 33.034040
     mz_Na = 22.98977 + mz - 33.034040
  
@@ -647,8 +647,8 @@ def Solo_M1pHpCH3OH(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Na])
 
 def Solo_M1pHpHCOOH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + mz - 47.013304
     mz_Na = 22.98977 + mz - 47.013304
     mz_HpCH3OH = 33.034040 + mz - 47.013304
@@ -662,8 +662,8 @@ def Solo_M1pHpHCOOH(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Na, valid_HpCH3OH, valid_HpCH3CN])
 
 def Solo_M1pNa(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + mz - 22.989770
 
     valid_H = peaks.between(mz_H - prec_mass_error, mz_H + prec_mass_error, inclusive = "both").sum()
@@ -671,8 +671,8 @@ def Solo_M1pNa(prec_mass_error, ion_idx, spectrum_list):
     return valid_H
 
 def Solo_M1pNapCH3CN(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = mz - 64.016319 + 1.007825
     mz_Na = mz - 64.016319 + 22.98977
     mz_NapCH3OH = mz - 64.016319 + 55.015985
@@ -682,8 +682,8 @@ def Solo_M1pNapCH3CN(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Na, valid_NapCH3OH])
 
 def Solo_M1pNapCH3OH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + mz - 55.015985
     mz_Na = 22.98977 + mz - 55.015985
     valid_H = peaks.between(mz_H - prec_mass_error, mz_H + prec_mass_error, inclusive = "both").sum() > 0
@@ -691,15 +691,15 @@ def Solo_M1pNapCH3OH(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_Na])
 
 def Solo_M1pNH4(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + mz - 18.034374
     valid_H = peaks.between(mz_H - prec_mass_error, mz_H + prec_mass_error, inclusive = "both").sum()
     return valid_H
 
 def Solo_M1pNH4pCH3CN(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + mz - 59.060923
     mz_NH4 = 18.034374 + mz - 59.060923
     valid_H = peaks.between(mz_H - prec_mass_error, mz_H + prec_mass_error, inclusive = "both").sum() > 0
@@ -707,8 +707,8 @@ def Solo_M1pNH4pCH3CN(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_NH4])
 
 def Solo_M1pK(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + mz - 38.963708
     mz_NH4 =  18.034374 + mz - 38.963708
     mz_Na = 22.98977 + mz - 38.963708
@@ -718,8 +718,8 @@ def Solo_M1pK(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_NH4, valid_Na])
 
 def Solo_M1pKpCH3OH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + mz - 70.989923
     mz_NH4 =  18.034374 + mz - 70.989923
     mz_Na = 22.98977 + mz - 70.989923
@@ -731,8 +731,8 @@ def Solo_M1pKpCH3OH(prec_mass_error, ion_idx, spectrum_list):
     return sum([valid_H, valid_NH4, valid_Na, valid_K])
 
 def Solo_M3pH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 1.007825)/3
     mz_NH4 = 18.034374 + (mz - 1.007825)/3
     mz_Na = 22.98977 + (mz - 1.007825)/3
@@ -781,8 +781,8 @@ def Solo_M3pH(prec_mass_error, ion_idx, spectrum_list):
                 valid_M2pNapCH3OH, valid_M2pKpCH3CN, valid_M2pKpCH3OH])
 
 def Solo_M3pNH4(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 18.034374)/3
     mz_NH4 = 18.034374 + (mz - 18.034374)/3
     mz_Na = 22.98977 + (mz - 18.034374)/3
@@ -832,8 +832,8 @@ def Solo_M3pNH4(prec_mass_error, ion_idx, spectrum_list):
 
     
 def Solo_M3pNa(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 22.989770)/3
     mz_NH4 = 18.034374 + (mz - 22.989770)/3
     mz_Na = 22.98977 + (mz - 22.989770)/3
@@ -882,8 +882,8 @@ def Solo_M3pNa(prec_mass_error, ion_idx, spectrum_list):
                 valid_M2pNapCH3OH, valid_M2pKpCH3CN, valid_M2pKpCH3OH])
 
 def Solo_M3pK(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 38.963708)/3
     mz_NH4 = 18.034374 + (mz - 38.963708)/3
     mz_Na = 22.98977 + (mz - 38.963708)/3
@@ -932,8 +932,8 @@ def Solo_M3pK(prec_mass_error, ion_idx, spectrum_list):
                 valid_M2pNapCH3OH, valid_M2pKpCH3CN, valid_M2pKpCH3OH])
     
 def Solo_M4pK(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 38.963708)/4
     mz_NH4 = 18.034374 + (mz - 38.963708)/4
     mz_Na = 22.98977 + (mz - 38.963708)/4
@@ -1005,8 +1005,8 @@ def Solo_M4pK(prec_mass_error, ion_idx, spectrum_list):
                 valid_M3pKpCH3CN, valid_M3pKpCH3OH])
 
 def Solo_M4pH(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 1.007825)/4
     mz_NH4 = 18.034374 + (mz - 1.007825)/4
     mz_Na = 22.98977 + (mz - 1.007825)/4
@@ -1078,8 +1078,8 @@ def Solo_M4pH(prec_mass_error, ion_idx, spectrum_list):
                 valid_M3pKpCH3CN, valid_M3pKpCH3OH])
 
 def Solo_M4pNH4(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 18.034374)/4
     mz_NH4 = 18.034374 + (mz - 18.034374)/4
     mz_Na = 22.98977 + (mz - 18.034374)/4
@@ -1151,8 +1151,8 @@ def Solo_M4pNH4(prec_mass_error, ion_idx, spectrum_list):
                 valid_M3pKpCH3CN, valid_M3pKpCH3OH])
 
 def Solo_M4pNa(prec_mass_error, ion_idx, spectrum_list):
-    mz = spectrum_list[ion_idx].get('pepmass')[0]
-    peaks = pd.Series(spectrum_list[ion_idx].peaks.mz)
+    mz = spectrum_list.spectrum[ion_idx].prec_mz
+    peaks = pd.Series(spectrum_list.spectrum[ion_idx].mz)
     mz_H = 1.007825 + (mz - 22.98977)/4
     mz_NH4 = 18.034374 + (mz - 22.98977)/4
     mz_Na = 22.98977 + (mz - 22.98977)/4

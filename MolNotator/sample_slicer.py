@@ -48,9 +48,6 @@ def sample_slicer(params : dict, ion_mode : str):
     
     # MZmine mgf file
     spectra = read_mgf_file(file_path = f'{in_path}{mgf_file}',
-                                  mz_field = params['mz_field'],
-                                  rt_field = params['rt_field'],
-                                  charge_field = params['charge_field'],
                                   ion_mode = ion_mode)
 
     # Export data

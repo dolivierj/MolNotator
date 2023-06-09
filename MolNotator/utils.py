@@ -400,3 +400,119 @@ def fragnotator_edge_table(node_table, spectra, params):
                                                      'mz_gap'])
 
     return edge_table
+
+
+#----------------------------------------------------- Spectrum operations ----
+
+def cosine_validation(ion_1_idx : int, node_table, spectrum_list : list,
+                      ion_hypotheses_table, adduct_table_primary, params : dict):
+    """
+    For each ionisation hypothesis (ion 1 and 2 pairs), reports the
+    cosine score from the cosine_table. In case of multiple hits in the
+    "hit_indexes" columns, the one with the best cosine score is kept (chosen
+    at random if both have the same score : either both completely unrelated
+    or the same spectrum). The duplicate hits are transferred to a duplicate_df
+    for annotation in the final network, they will take no part in calculation.
+    Points are then awared according to the cosine score:
+    1+cosine score if the score is above threshold, 0 if it is below.
+
+    Parameters
+    ----------
+    ion_1_idx : int
+        Current ion ID / index.
+    node_table : pandas.DataFrame
+        Node table with the ion metadata.
+    spectrum_list : list
+        List of matchms.Spectrum objects.
+    ion_hypotheses_table : pandas.DataFrame
+        Ion hypotheses table obtained from other functions.
+    adduct_table_primary : pandas.DataFrame
+        Primary adduct table from the parameter folder.
+    params : dict
+        Dictionary containing the global parameters for the process.
+
+    Returns
+    -------
+    ion_hypotheses_table : pandas.DataFrame
+        Ion hypotheses table with points awarded.
+    duplicate_df : pandas.DataFrame
+        Duplicates found in the ion hypotheses table.
+
+    """
+    
+    # Load parameters
+    cosine_threshold = params['an_cos_threshold']
+    spec_id_1 = node_table.loc[ion_1_idx, 'spec_id']
+    
+    # Initialise variables
+    score_table = list()
+
+    # duplicate_df will contain adducts with roles considered redundant
+    duplicate_df = pd.DataFrame(columns = ["ion_1_idx", "ion_1_adduct",
+                                           "ion_2_idx", "ion_2_adduct",
+                                           "selected_ion", "cosine_score",
+                                           "matched_peaks", "different_group"])
+    for i in ion_hypotheses_table.index:
+        
+        # Check adduct groups for ions 1 and 2
+        group_1 = adduct_table_primary.loc[ion_hypotheses_table.loc[i, "Ion1_adduct"], "Group"]
+        group_2 = adduct_table_primary.loc[ion_hypotheses_table.loc[i, "Ion2_adduct"], "Group"]
+        if group_1 == group_2: different_group = False
+        else: different_group = True
+        
+        # If only one ion 2, calculate scores
+        if ion_hypotheses_table.loc[i, "hit_count"] == 1 :
+            ion_2_idx = ion_hypotheses_table.loc[i,"hit_indexes"][0]
+            spec_id_2 = node_table.loc[ion_2_idx, "spec_id"]
+            
+            score, n_matches = spectrum_cosine_score(spectrum1 = spectrum_list.spectrum[spec_id_1],
+                                                     spectrum2 = spectrum_list.spectrum[spec_id_2],
+                                                     tolerance = params['an_mass_error'])
+            
+            prod = score * n_matches
+        # If several ion 2, select the best one based on scores
+        else:
+            selected_hit = pd.DataFrame(columns = ['cos', 'peaks', 'prod'])
+            for hit in ion_hypotheses_table.loc[i,"hit_indexes"]:
+                spec_id_2 = node_table.loc[hit, "spec_id"]
+                
+                score, n_matches = spectrum_cosine_score(spectrum1 = spectrum_list.spectrum[spec_id_1],
+                                                         spectrum2 = spectrum_list.spectrum[spec_id_2],
+                                                         tolerance = params['an_mass_error'])
+                selected_hit.loc[hit] = [score, n_matches, score * n_matches]
+
+            selected_hit.sort_values('prod', ascending = False, inplace =True)
+            new_hit = selected_hit.index[0]
+            score = selected_hit['cos'].iloc[0]
+            n_matches = int(selected_hit['peaks'].iloc[0])
+            prod = selected_hit['prod'].iloc[0]
+            selected_hit.drop(new_hit, inplace = True)
+            ion_hypotheses_table.loc[i, "hit_indexes"] = [[new_hit]]
+            for j in selected_hit.index:
+                tmp_idx = len(duplicate_df)
+                duplicate_df.loc[tmp_idx] = [ion_1_idx,
+                                    ion_hypotheses_table.loc[i, "Ion1_adduct"],
+                                 j, ion_hypotheses_table.loc[i, "Ion2_adduct"],
+                                 new_hit, selected_hit.loc[j, 'cos'], selected_hit.loc[j, 'peaks'],
+                                 different_group]
+        # If score is below threshold, nullify all.
+        if score < cosine_threshold: 
+            score = 0.0
+            prod = 0.0
+        score_table.append((different_group, score, n_matches, prod))
+    
+    # Convert scores to dataframe and merge with ion_hypothesis thable
+    score_table = pd.DataFrame(score_table, columns = ['different_group',
+                                                       'cosine_score',
+                                                       'matched_peaks',
+                                                       'product'])
+    ion_hypotheses_table = pd.concat([ion_hypotheses_table, score_table], axis = 1)
+    
+    # Convert the hit_indexes col (which are now guaranteed to be only one), to int
+    ion_hypotheses_table['hit_indexes'] = ion_hypotheses_table['hit_indexes'].str[0]
+    
+    # Filter by score and same group criterium
+    tmp_bool = ion_hypotheses_table["different_group"] + ion_hypotheses_table["cosine_score"] >= cosine_threshold
+    duplicate_bool = duplicate_df["different_group"] + duplicate_df["cosine_score"] >= cosine_threshold
+    return ion_hypotheses_table[tmp_bool], duplicate_df[duplicate_bool]
+

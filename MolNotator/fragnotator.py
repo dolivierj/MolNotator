@@ -49,8 +49,7 @@ def fragnotator(params : dict, ion_mode : str):
         
         # Load the MGF file
         spectra = read_mgf_file(file_path = f'{in_path}/{file_name}',
-                                mz_field = params["mz_field"],
-                                rt_field = params["rt_field"])
+                                ion_mode = ion_mode)
         
         # Create the node_table table : 
         print('Extracting spectrum data...')
