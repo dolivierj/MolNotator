@@ -6,6 +6,7 @@ from matchms.importing import load_from_mgf
 from matchms.filtering import default_filters
 from matchms.similarity import ModifiedCosine
 from MolNotator.others.global_functions import *
+from MolNotator.utils import spectrum_cosine_score, read_mgf_file
 
 def dereplicator(params : dict, db_params : dict):
 
@@ -64,31 +65,31 @@ def dereplicator(params : dict, db_params : dict):
     ###########################################################################
     if db_type == 'ion': # If database is MGF to dereplicate ion (MS/MS) data
     ###########################################################################
-        modified_cosine = ModifiedCosine(tolerance=db_mass_error)
         Filter_fields_outer, filter_cols = Filter_choices_outer(db_params)
         
         # Load MGF files
         if params['process_mode'] == "NEG":
             print('Loading NEG MGF file...')
-            mgf_neg = list(load_from_mgf(input_mgf_neg_path + mgf_file_neg))
-            mgf_neg = [Spectrum_processing(s) for s in mgf_neg]
+            mgf_neg = read_mgf_file(input_mgf_neg_path + mgf_file_neg)
+
         elif params['process_mode'] == "POS":
             print('Loading POS MGF file...')
-            mgf_pos = list(load_from_mgf(input_mgf_pos_path + mgf_file_pos))
-            mgf_pos = [Spectrum_processing(s) for s in mgf_pos]
+            mgf_pos = read_mgf_file(input_mgf_pos_path + mgf_file_pos)
         else:
             print('Loading NEG MGF file...')
-            mgf_neg = list(load_from_mgf(input_mgf_neg_path + mgf_file_neg))
-            mgf_neg = [Spectrum_processing(s) for s in mgf_neg]
+            mgf_neg = read_mgf_file(input_mgf_neg_path + mgf_file_neg)
             print('Loading POS MGF file...')
-            mgf_pos = list(load_from_mgf(input_mgf_pos_path + mgf_file_pos))
-            mgf_pos = [Spectrum_processing(s) for s in mgf_pos]
+            mgf_pos = read_mgf_file(input_mgf_pos_path + mgf_file_pos)
 
         # Load the database file
         print('Loading database file and extracting data...')
-        database_mgf = list(load_from_mgf(db_folder + db_file))
-        database_mgf = [Float_prec_mz(s, db_params) for s in database_mgf]
-        database_table = Database_table_mgf(database_mgf, db_params)
+        
+        database_mgf = read_mgf_file(file_path = db_folder + db_file,
+                                     mz_field = db_params["db_mass_field"],
+                                     rt_field = db_params["db_rt_field"],
+                                     charge_field = "charge")
+        
+        database_table = database_mgf.to_data_frame()
         
         # Start dereplication (cosine similarity)
         derep_table = list()
@@ -102,7 +103,7 @@ def dereplicator(params : dict, db_params : dict):
             ion_mz = node_table.loc[i, mz_field]
             ion_mgf_idx = int(node_table.loc[i, "spec_id"])
             ion_mode = node_table.loc[i, "ion_mode"]
-            hits = database_table[database_table["mz"].between(ion_mz - db_prec_error, ion_mz + db_prec_error, inclusive = "both")].copy()
+            hits = database_table[database_table["prec_mz"].between(ion_mz - db_prec_error, ion_mz + db_prec_error, inclusive = "both")].copy()
             
             # Ion mode filter
             if ion_mode == "NEG":
@@ -124,7 +125,11 @@ def dereplicator(params : dict, db_params : dict):
             # Calculate cosine similarity if hit table is not empty
             similarity_list = list()
             for j in hits.index:
-                score, n_matches = modified_cosine.pair(exp_mgf[ion_mgf_idx], database_mgf[j])
+                
+                score, n_matches = spectrum_cosine_score(exp_mgf.spectrum[ion_mgf_idx],
+                                                         database_mgf.spectrum[j],
+                                                         db_mass_error)
+                
                 mass_error = abs(ion_mz - hits.loc[j, "mz"])*1000
                 prod = score * n_matches
                 similarity_list.append((j, score, n_matches, prod, mass_error))

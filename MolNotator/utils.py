@@ -53,6 +53,14 @@ class Spectrum:
     def to_tuple(self):
         return tuple([self.prec_mz, self.rt, self.charge, self.tic] + list(self.metadata.values()))
     
+    def to_dict(self):
+        values = {"prec_mz" : self.prec_mz,
+                  "rt" : self.rt,
+                  "charge" : self.charge,
+                  "TIC" : self.tic}
+        values.update(self.metadata)
+        return values
+    
     def to_mgf(self):
         mgf_string = "BEGIN IONS\n"
         mgf_string += "PEPMASS={}\n".format(self.prec_mz)
@@ -73,15 +81,13 @@ class Spectra:
     def __init__(self):
         self.spectrum = []
         self.data_frame = None
+        self.fields = []
     
     def to_data_frame(self):
-        data_frame = list()
-        meta_keys = list(self.spectrum[0].metadata.keys())
-        meta_keys = [s.lower() for s in meta_keys]
-        columns = ["prec_mz", "rt", "charge", "TIC"] + meta_keys
+        data_frame = pd.DataFrame(columns = self.fields)
         for s in self.spectrum:
-            data_frame.append(s.to_tuple())
-        return pd.DataFrame(data_frame, columns = columns)
+            data_frame.loc[len(data_frame)] = s.to_dict()
+        return data_frame
     
     def to_mgf(self):
         mgf_string = ""
@@ -123,6 +129,7 @@ def read_mgf_file(file_path : str, mz_field : str = "pepmass", rt_field : str = 
     current_spectrum = None
     mz_list = []
     int_list = []
+    field_list = []
 
     with open(file_path, 'r') as file:
         for line in file:
@@ -139,6 +146,7 @@ def read_mgf_file(file_path : str, mz_field : str = "pepmass", rt_field : str = 
                     current_spectrum = None
                     mz_list = []
                     int_list = []
+                    field_list = list(set(field_list))
             
             elif current_spectrum: 
                 if mz_field in line.lower():
@@ -148,12 +156,17 @@ def read_mgf_file(file_path : str, mz_field : str = "pepmass", rt_field : str = 
                 elif charge_field in line.lower():
                     current_spectrum.charge = line.split('=')[1]
                 elif '=' in line:
-                    key, value = line.split('=')
+                    key, value = line.split('=', 1)
                     current_spectrum.metadata[key.strip()] = value.strip()
+                    field_list.append(key.strip())
                 elif line != "":
                     values = line.split()
                     mz_list.append(float(values[0]))
                     int_list.append(float(values[1]))
+                    
+    field_list.sort()
+    field_list = [s.lower() for s in field_list]
+    spectra.fields = ["prec_mz", "rt", "charge", "TIC"] + field_list
     
     if (ion_mode):
         spectra.correct_charge(ion_mode)
