@@ -2,10 +2,6 @@ import pandas as pd
 import numpy as np
 import sys
 from pandas.core.common import flatten
-from matchms.exporting import save_as_mgf
-
-
-
 
 def sample_slicer_export(sample : str, csv_table, spectra, out_path : str):
     """
@@ -29,7 +25,7 @@ def sample_slicer_export(sample : str, csv_table, spectra, out_path : str):
     """
     spec_id = csv_table["spec_id"][csv_table[sample] > 0].tolist()
     new_sectra = slice_spectra(spectra, spec_id)
-    new_sectra.to_mgf(f'{out_path}{sample}')
+    new_sectra.write_mgf(f'{out_path}{sample}')
 
 
 
@@ -193,7 +189,7 @@ def spectrum_cosine_score(spectrum1, spectrum2, tolerance):
 
 #-------------------------------------------------------------------- Misc ----
 
-def slice_spectra(old_spectra, spec_id_list)
+def slice_spectra(old_spectra, spec_id_list):
     new_spectra = Spectra()
     for i in spec_id_list:
         new_spectra.spectrum.append(old_spectra.spectrum[i])
