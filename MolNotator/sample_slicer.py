@@ -2,8 +2,8 @@
 import os
 from tqdm import tqdm
 import pandas as pd
-from matchms.importing import load_from_mgf
 from MolNotator.utils import sample_slicer_export
+from MolNotator.utils import read_mgf_file
 import multiprocessing as mp
 import time
 
@@ -50,22 +50,14 @@ def sample_slicer(params : dict, ion_mode : str):
     csv_table.columns = csv_table.columns.str.replace(params['col_suffix'], '.mgf', regex = False)
     
     # MZmine mgf file
-    mgf_list = list(load_from_mgf(f'{in_path}{mgf_file}'))
+    spectra = read_mgf_file(f'{in_path}{mgf_file}')
     
     cpu_count = min(len(samples), mp.cpu_count(), params['workers'])
     
     pool = mp.Pool(cpu_count)
-    workers = [pool.apply_async(sample_slicer_export, args=(samples[i], csv_table, mgf_list, out_path)) for i in range(cpu_count)]
-
-    start = time.time()
-    
+    workers = [pool.apply_async(sample_slicer_export, args=(samples[i], csv_table, spectra, out_path)) for i in range(cpu_count)]
     for w in tqdm(workers):
         w.get()
-    
-    end = time.time()
-    print(end-start)
-    
-
 
 
 if __name__ == '__main__':

@@ -7,7 +7,7 @@ from matchms.exporting import save_as_mgf
 
 
 
-def sample_slicer_export(sample : str, csv_table, mgf_file : list, out_path : str):
+def sample_slicer_export(sample : str, csv_table, spectra, out_path : str):
     """
     Writes sub-mgf file specific to one sample.
 
@@ -17,8 +17,8 @@ def sample_slicer_export(sample : str, csv_table, mgf_file : list, out_path : st
         Sample name in the table.
     csv_table : pandas.DataFrame
         Main table containing signal per sample.
-    mgf_file : list
-        List of spectra..
+    spectra : Spectra
+        MolNotator Spectra class.
     out_path : str
         Output directory.
 
@@ -27,9 +27,9 @@ def sample_slicer_export(sample : str, csv_table, mgf_file : list, out_path : st
     None.
 
     """
-    mgf_idx = csv_table["spec_id"][csv_table[sample] > 0].tolist()
-    new_mgf = [mgf_file[i] for i in mgf_idx]
-    save_as_mgf(new_mgf, f'{out_path}{sample}')
+    spec_id = csv_table["spec_id"][csv_table[sample] > 0].tolist()
+    new_sectra = slice_spectra(spectra, spec_id)
+    new_sectra.to_mgf(f'{out_path}{sample}')
 
 
 
@@ -191,11 +191,12 @@ def spectrum_cosine_score(spectrum1, spectrum2, tolerance):
     spectrum2 = (spectrum2.mz, spectrum2.intensity)
     return calculate_cosine_score(spectrum1, spectrum2, tolerance)
 
-# Example usage
-# spectrum1 = (np.array([90.0010, 100, 150, 200]), np.array([0.7, 0.2, 0.1, 0.5]))
-# spectrum2 = (np.array([104.9, 100.0001, 140, 190, 90.0025]), np.array([0.4, 0.8, 0.2, 0.1, 0.5]))
-# score = calculate_cosine_score(spectrum1, spectrum2, tolerance=0.2)
-# print("Cosine score is {:.3f} with {} matched peaks".format(score[0], score[1]))
+#-------------------------------------------------------------------- Misc ----
 
+def slice_spectra(old_spectra, spec_id_list)
+    new_spectra = Spectra()
+    for i in spec_id_list:
+        new_spectra.spectrum.append(old_spectra.spectrum[i])
+    return new_spectra
 
 

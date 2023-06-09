@@ -3,8 +3,7 @@ import os
 import pandas as pd
 from pandas.core.common import flatten
 from MolNotator.others.duplicate_finder import duplicate_finder
-from MolNotator.utils import read_mgf_file
-from MolNotator.utils import Spectra
+from MolNotator.utils import read_mgf_file, slice_spectra, Spectra
 
 def duplicate_filter(params : dict, ion_mode : str):
     """
@@ -98,9 +97,7 @@ def duplicate_filter(params : dict, ion_mode : str):
     kept_ions = [node_table.loc[i, "spec_id"] for i in kept_ions]
     
     
-    mgf_file_new = Spectra()
-    for i in kept_ions:
-        mgf_file_new.spectrum.append(spectrum_list.spectrum[i])
+    mgf_file_new = slice_spectra(spectrum_list, kept_ions)
 
     node_table_new = node_table.drop(dropped_ions)
     
