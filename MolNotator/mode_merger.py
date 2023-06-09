@@ -3,7 +3,7 @@ import pandas as pd
 from pandas.core.common import flatten
 import sys
 from tqdm import tqdm
-from matchms.importing import load_from_mgf
+from MolNotator.utils import read_mgf_file
 from MolNotator.others.species_validators import *
 from MolNotator.others.global_functions import *
 
@@ -105,20 +105,19 @@ def mode_merger(params : dict):
     
     # Load and filter the global spectrum files in pos and neg
     print("Loading and filtering NEG spectrum file...")
-    neg_spectrum_list = list(load_from_mgf(in_path_full_neg + neg_spectrum_file))
-    neg_spectrum_list = [Spectrum_processing(s) for s in neg_spectrum_list]
+    neg_spectrum_list = read_mgf_file(in_path_full_neg + neg_spectrum_file)
     print("Loading and filtering POS spectrum file...")
-    pos_specturm_list = list(load_from_mgf(in_path_full_pos + pos_spectrum_file))
-    pos_specturm_list = [Spectrum_processing(s) for s in pos_specturm_list]
+    pos_specturm_list = read_mgf_file(in_path_full_pos + pos_spectrum_file)
     
     
     #Load adduct tables
     adduct_table_primary_neg = pd.read_csv("./params/" + adduct_table_primary_neg, sep = "\t")
     adduct_table_secondary_neg = pd.read_csv("./params/" + adduct_table_secondary_neg, sep = "\t")
-    adduct_table_merged_neg = adduct_table_primary_neg.append(adduct_table_secondary_neg, ignore_index = True)
+    adduct_table_merged_neg = pd.concat([adduct_table_primary_neg, adduct_table_secondary_neg], ignore_index = True)
     adduct_table_primary_pos = pd.read_csv("./params/" + adduct_table_primary_pos, sep = "\t")
     adduct_table_secondary_pos = pd.read_csv("./params/" + adduct_table_secondary_pos, sep = "\t")
-    adduct_table_merged_pos = adduct_table_primary_pos.append(adduct_table_secondary_pos, ignore_index = True)
+    adduct_table_merged_pos = pd.concat([adduct_table_primary_pos, adduct_table_secondary_pos], ignore_index = True)
+
     
     # Produce base neutral adduct tables
     adduct_table_base_neg = [adduct_table_merged_neg.index[adduct_table_merged_neg['Adduct'] == adduct][0] for adduct in bnr_list_neg]
@@ -209,11 +208,12 @@ def mode_merger(params : dict):
     node_table_ions_neg= node_table_all_neg[node_table_all_neg['status'] != "neutral"]
     node_table_ions_pos= node_table_all_pos[node_table_all_pos['status'] != "neutral"]
     merged_node_table = pd.DataFrame()
-    merged_node_table = merged_node_table.append(node_table_ions_neg, ignore_index = True)
-    merged_node_table = merged_node_table.append(node_table_ions_pos, ignore_index = True)
+    merged_node_table = pd.concat([merged_node_table, node_table_ions_neg], ignore_index = True)
+    merged_node_table = pd.concat([merged_node_table, node_table_ions_pos], ignore_index = True)
+    
     merged_edge_table = pd.DataFrame()
-    merged_edge_table = merged_edge_table.append(edge_table_all_neg, ignore_index = True)
-    merged_edge_table = merged_edge_table.append(edge_table_all_pos, ignore_index = True)
+    merged_edge_table = pd.concat([merged_edge_table, edge_table_all_neg], ignore_index = True)
+    merged_edge_table = pd.concat([merged_edge_table, edge_table_all_pos], ignore_index = True)
     
     #Check from NEG to POS if there are neutral nodes that might match
     
@@ -468,20 +468,25 @@ def mode_merger(params : dict):
     pos_neutrals.drop(intersect_neutrals, inplace = True)
     
     # Add non merged neg neutrals to the merged node table
+    new_row = list()
     print('Adding non-merged neg neutrals to the merged node table...')
     for neutral in tqdm(neg_neutrals.index):
         new_idx = merged_node_table.index.max() + 1 
         merged_node_table.loc[new_idx] = neg_neutrals.loc[neutral].copy()
-        new_row = pd.Series([new_idx, neutral, None], index = ["MIX", "NEG", "POS"])
-        transitions_table = transitions_table.append(new_row, ignore_index = True)
+        new_row.append((new_idx, neutral, None))
+        
+
 
     # Add non merged pos neutrals to the merged node table
     print('Adding non-merged pos neutrals to the merged node table...')
     for neutral in tqdm(pos_neutrals.index):
         new_idx = merged_node_table.index.max() + 1 
         merged_node_table.loc[new_idx] = pos_neutrals.loc[neutral].copy()
-        new_row = pd.Series([new_idx, None, neutral], index = ["MIX", "NEG", "POS"])
-        transitions_table = transitions_table.append(new_row, ignore_index = True)
+        new_row.append((new_idx, None, neutral))
+
+    new_row = pd.DataFrame(new_row, columns = ["MIX", "NEG", "POS"])
+    transitions_table = pd.concat([transitions_table, new_row], ignore_index = True)
+
     
     # Replace old IDs by new ones in the merged edge table.
     print('Resetting edge table IDs...')
@@ -910,14 +915,12 @@ def mode_merger(params : dict):
         selected_adduct = unique_adducts[point_list.index(max(point_list))]
         tmp_table_1 = tmp_table_1[tmp_table_1['pos_adduct'] == selected_adduct]
         for j in tmp_table_1.index:
-            tmp_candidates_table.append((tmp_table_1.loc[j, "neg_ion"], 
-                                         tmp_table_1.loc[j, "neg_adduct"],
-                                         tmp_table_1.loc[j, "neg_complexity"],
-                                         tmp_table_1.loc[j, "pos_ion"],
-                                         tmp_table_1.loc[j, "pos_adduct"],
-                                         tmp_table_1.loc[j, "pos_complexity"]))      
+            tmp_candidates_table.append(tuple(tmp_table_1.loc[j]))
+    
     tmp_candidates_table = pd.DataFrame(tmp_candidates_table, columns = ['neg_ion', 'neg_adduct', 'neg_complexity', 'pos_ion', 'pos_adduct', 'pos_complexity'])
-    candidates_table = candidates_table.append(tmp_candidates_table, ignore_index = True)
+    
+    
+    candidates_table = pd.concat([candidates_table, tmp_candidates_table], ignore_index = True)
 
     # Filter candidates table to have only unique combinations
     candidates_table['mix_idx'] = candidates_table['neg_ion'].astype(str) + "&" + candidates_table['pos_ion'].astype(str)
@@ -1128,7 +1131,8 @@ def mode_merger(params : dict):
                                          tmp_table_1.loc[j, "neg_adduct"],
                                          tmp_table_1.loc[j, "neg_complexity"]))
     tmp_candidates_table = pd.DataFrame(tmp_candidates_table, columns = ['pos_ion', 'pos_adduct', 'pos_complexity', 'neg_ion', 'neg_adduct', 'neg_complexity'])
-    candidates_table = candidates_table.append(tmp_candidates_table, ignore_index = True)
+    
+    candidates_table = pd.concat([candidates_table, tmp_candidates_table], ignore_index = True)
 
     # Keep only uniques
     candidates_table['mix_idx'] = candidates_table['neg_ion'].astype(str) + "&" + candidates_table['pos_ion'].astype(str)
