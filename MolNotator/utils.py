@@ -67,7 +67,7 @@ class Spectrum:
         mgf_string += "RTINSECONDS={}\n".format(self.rt)
         mgf_string += "CHARGE={}\n".format(self.charge)
         for key, value in self.metadata.items():
-            mgf_string += "{}={}\n".format(key, value)
+            mgf_string += "{}={}\n".format(key.upper(), value)
         for mz, intensity in zip(self.mz, self.intensity):
             mgf_string += "{} {}\n".format(mz, intensity)
         mgf_string += "END IONS\n\n"
@@ -157,7 +157,7 @@ def read_mgf_file(file_path : str, mz_field : str = "pepmass", rt_field : str = 
                     current_spectrum.charge = line.split('=')[1]
                 elif '=' in line:
                     key, value = line.split('=', 1)
-                    current_spectrum.metadata[key.strip()] = value.strip()
+                    current_spectrum.metadata[key.strip().lower()] = value.strip()
                     field_list.append(key.strip())
                 elif line != "":
                     values = line.split()
