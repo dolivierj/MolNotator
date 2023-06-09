@@ -2,9 +2,6 @@ import os
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
-from matchms.importing import load_from_mgf
-from matchms.filtering import default_filters
-from matchms.similarity import ModifiedCosine
 from MolNotator.others.global_functions import *
 from MolNotator.utils import spectrum_cosine_score, read_mgf_file
 
@@ -34,6 +31,7 @@ def dereplicator(params : dict, db_params : dict):
     db_rt_error= db_params['db_rt_error']
     db_hits= db_params['db_hits']
     db_adduct_filter= db_params['db_adduct_filter']
+    db_name= db_params['db_name_field']
     db_adduct_field= db_params['db_adduct_field']
     db_rt_filter= db_params['db_rt_filter']
     db_mode_field= db_params['db_mode_field']
@@ -130,7 +128,7 @@ def dereplicator(params : dict, db_params : dict):
                                                          database_mgf.spectrum[j],
                                                          db_mass_error)
                 
-                mass_error = abs(ion_mz - hits.loc[j, "mz"])*1000
+                mass_error = abs(ion_mz - hits.loc[j, "prec_mz"])*1000
                 prod = score * n_matches
                 similarity_list.append((j, score, n_matches, prod, mass_error))
             similarity_list = pd.DataFrame(similarity_list, columns = ["index", "cos", "matches", "prod", "error_mDa"])
@@ -148,10 +146,10 @@ def dereplicator(params : dict, db_params : dict):
                 continue
             
             # Filter using unique field:
-            unique_mols = hits['unique_field'].dropna().unique()
-            mol_idx = hits.index[hits['unique_field'].isnull()].tolist()
+            unique_mols = hits[db_unique_field].dropna().unique()
+            mol_idx = hits.index[hits[db_unique_field].isnull()].tolist()
             for mol in unique_mols:
-                tmp_table_1 = hits[hits['unique_field'] == mol].copy()
+                tmp_table_1 = hits[hits[db_unique_field] == mol].copy()
                 tmp_table_1.sort_values('prod', ascending = False, inplace = True)
                 mol_idx.append(tmp_table_1.index[0])
             hits = hits.loc[mol_idx]
@@ -162,8 +160,8 @@ def dereplicator(params : dict, db_params : dict):
             hits = hits.fillna('')
             
             # Report the results in the derep_table list
-            tmp_name = '|'.join(hits['name'])
-            tmp_mz = '|'.join(hits['mz'].round(4).astype(str))
+            tmp_name = '|'.join(hits[db_name])
+            tmp_mz = '|'.join(hits['prec_mz'].round(4).astype(str))
             tmp_filter_fields = ['|'.join(hits[col].astype(str)) for col in filter_cols]
             tmp_export_fields = ['|'.join(hits[f].astype(str)) for f in db_export_fields]
             tmp_cos = '|'.join(hits['cos'].round(2).astype(str))
@@ -248,7 +246,7 @@ def dereplicator(params : dict, db_params : dict):
                 hits['error_mDa'] = abs(mass - hits['mass'])*1000
                 hits.sort_values('error_mDa', ascending = True, inplace = True)
                 hits = hits.iloc[:db_hits]
-                tmp_names = '|'.join(hits['name'])
+                tmp_names = '|'.join(hits["name"])
                 tmp_masses = '|'.join(hits['mass'].round(4).astype(str))
                 tmp_error = '|'.join(hits['error_mDa'].round(1).astype(str))
                 other_fields = ['|'.join(hits[field].astype(str)) for field in db_params['db_export_fields']]
@@ -296,7 +294,7 @@ def dereplicator(params : dict, db_params : dict):
                 new_row = [i, None, None, None] + [None]*len(db_params['db_export_fields'])
                 derep_table.append(new_row)
                 continue                
-            tmp_names = '|'.join(hits['name'])
+            tmp_names = '|'.join(hits["name"])
             tmp_masses = str(hits['mass'].iloc[0].round(4))
             tmp_formula = hits['formula'].iloc[0]
             other_fields = ['|'.join(hits[field].astype(str)) for field in db_params['db_export_fields']]
