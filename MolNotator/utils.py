@@ -1,7 +1,8 @@
 import pandas as pd
 import numpy as np
-import sys
-from pandas.core.common import flatten
+from tqdm import tqdm
+import operator
+import re
 
 def sample_slicer_export(sample : str, csv_table, spectra, out_path : str):
     """
@@ -39,6 +40,7 @@ class Spectrum:
         self.metadata = {}
         self.prec_mz = None
         self.rt = None
+        self.charge = None
         self.tic = None
     
     def add_mz(self, mz_list : list):
@@ -49,18 +51,23 @@ class Spectrum:
         self.intensity = np.array(int_list)
     
     def to_tuple(self):
-        return tuple([self.prec_mz, self.rt, self.tic] + list(self.metadata.values()))
+        return tuple([self.prec_mz, self.rt, self.charge, self.tic] + list(self.metadata.values()))
     
     def to_mgf(self):
         mgf_string = "BEGIN IONS\n"
         mgf_string += "PEPMASS={}\n".format(self.prec_mz)
         mgf_string += "RTINSECONDS={}\n".format(self.rt)
+        mgf_string += "CHARGE={}\n".format(self.charge)
         for key, value in self.metadata.items():
             mgf_string += "{}={}\n".format(key, value)
         for mz, intensity in zip(self.mz, self.intensity):
             mgf_string += "{} {}\n".format(mz, intensity)
         mgf_string += "END IONS\n\n"
         return mgf_string
+    def correct_charge(self, op):
+        self.charge = op(int(re.sub("[^0-9]", "", self.charge))) 
+
+        
 
 class Spectra:
     def __init__(self):
@@ -71,7 +78,7 @@ class Spectra:
         data_frame = list()
         meta_keys = list(self.spectrum[0].metadata.keys())
         meta_keys = [s.lower() for s in meta_keys]
-        columns = ["prec_mz", "rt", "TIC"] + meta_keys
+        columns = ["prec_mz", "rt", "charge", "TIC"] + meta_keys
         for s in self.spectrum:
             data_frame.append(s.to_tuple())
         return pd.DataFrame(data_frame, columns = columns)
@@ -86,12 +93,18 @@ class Spectra:
         mgf_string = self.to_mgf()
         with open(output_file_path, 'w') as file:
             file.write(mgf_string)
+    
+    def correct_charge(self, ion_mode):
+        if ion_mode == "NEG":
+            op = operator.neg
+        elif ion_mode == "POS":
+            op = operator.pos
+        for s in self.spectrum:
+            s.correct_charge(op)
             
 
-
-
 #--------------------------------------------------------------- MGF files ----
-def read_mgf_file(file_path : str, mz_field : str = "pepmass", rt_field : str = "rtinseconds"):
+def read_mgf_file(file_path : str, mz_field : str = "pepmass", rt_field : str = "rtinseconds", charge_field : str = "charge", ion_mode : str = None):
     """
     Reads an MGF file and exports the spectra as a list
 
@@ -132,6 +145,8 @@ def read_mgf_file(file_path : str, mz_field : str = "pepmass", rt_field : str = 
                     current_spectrum.prec_mz = float(line.split('=')[1])
                 elif rt_field in line.lower():
                     current_spectrum.rt = float(line.split('=')[1])
+                elif charge_field in line.lower():
+                    current_spectrum.charge = line.split('=')[1]
                 elif '=' in line:
                     key, value = line.split('=')
                     current_spectrum.metadata[key.strip()] = value.strip()
@@ -140,8 +155,10 @@ def read_mgf_file(file_path : str, mz_field : str = "pepmass", rt_field : str = 
                     mz_list.append(float(values[0]))
                     int_list.append(float(values[1]))
     
+    if (ion_mode):
+        spectra.correct_charge(ion_mode)
+    
     return spectra
-
 
 #------------------------------------------------------------ Cosine score ----
 
@@ -293,4 +310,93 @@ def singleton_edges(node_table, edge_table):
     singleton_edge_table['status'] = ["singleton"]*len(singleton_edge_table)
     edge_table = pd.concat([edge_table, singleton_edge_table], ignore_index=True)
     edge_table.reset_index(drop = True, inplace = True)
+    return edge_table
+
+"""fragnotator_edge_table.py - fragnotator_edge_table module for fragnotator"""
+def fragnotator_edge_table(node_table, spectra, params):
+    """
+    Finds precursor-fragment ion pairs for in-source fragmentation, using the
+    metadata in a node table and the spectra in the spectrum file.
+    Parameters
+    ----------
+    node_table : pandas.DataFrame
+        Dataframe containing metadata from the fragnotator module.
+    spectra : list
+        List of matchms.Spectrum objects from the fragnotator module.
+    params : dict
+        Dictionary containing the global parameters for the process.
+    Returns
+    -------
+    edge_table : pandas.DataFrame
+        Dataframe containing the precursor-fragment ion pairs.
+    """
+
+    # Get parameters
+    score_threshold = params['fn_score_threshold']
+    min_shared_peaks = params['fn_matched_peaks']
+    rt_error = params['fn_rt_error']
+    mass_error = params['fn_mass_error']
+    rt_field = params['rt_field']
+    mz_field = params['mz_field']
+    
+
+    # If the retention time is in minutes
+    if params['rt_unit'] == "m":
+        rt_error = rt_error/60
+
+    # For each ion, search fragment candidates
+    edge_table = list()
+    for i in tqdm(node_table.index) :
+        
+        # Get ion 1 data (precursor)
+        ion1_spec_id = node_table.loc[i, "spec_id"]
+        ion1_rt = node_table.loc[i, rt_field]
+        ion1_mz = node_table.loc[i, mz_field]
+        ion1_msms = pd.Series(spectra.spectrum[ion1_spec_id].mz)
+        
+        # Find fragment candidate ions (below mz, similar RT)
+        candidate_table = rt_slicer(ion1_rt, rt_error, i, node_table, rt_field)
+        candidate_table = candidate_table[candidate_table[mz_field] < ion1_mz]
+        
+        # If no candidates are found, skip
+        if len(candidate_table.index) == 0 : continue
+        
+        # Candidates must share their precursor ion with the precursor in MSMS
+        for j in candidate_table.index:
+            
+            # Get ion 2 data (fragment)
+            ion2_spec_id = node_table.loc[j, "spec_id"]
+            ion2_mz = node_table.loc[j, mz_field]
+            ion2_mz_low = ion2_mz - mass_error
+            ion2_mz_high = ion2_mz + mass_error
+            match = ion1_msms.between(ion2_mz_low, ion2_mz_high, inclusive = "both")
+            if match.sum() > 0 : # if the frag candidate m/z is found in MSMS:
+                ion2_msms = pd.Series(spectra.spectrum[ion2_spec_id].mz)
+                matched_peaks = 0
+                total_peaks = list(ion1_msms)
+                for frag in ion2_msms : # find the number of matched peaks
+                    frag_low = frag - mass_error
+                    frag_high = frag + mass_error
+                    frag_found = ion1_msms.between(frag_low, frag_high, inclusive = "both").sum()
+                    if frag_found > 0 :
+                        matched_peaks += 1
+                    else :
+                        total_peaks.append(frag)
+                
+                # Check number of matched peaks & matching score to validate frag
+                if matched_peaks >= min_shared_peaks : # if number of matches above threshold
+                    total_peaks = pd.Series(total_peaks)[total_peaks <= ion2_mz_high]
+                    matching_score = round(matched_peaks / len(total_peaks),2)
+                    if matching_score >= score_threshold:
+                        edge_table.append((i, j, matched_peaks, len(total_peaks),
+                                           matching_score,
+                                           ion1_rt - node_table[rt_field][j],
+                                           ion1_mz - node_table[mz_field][j]))
+        
+    # Results are stored in the edge table
+    edge_table = pd.DataFrame(edge_table, columns = ['node_1', 'node_2',
+                                                     'matched_peaks', 'total_peaks',
+                                                     'matching_score', 'rt_gap',
+                                                     'mz_gap'])
+
     return edge_table

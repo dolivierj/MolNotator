@@ -1,12 +1,9 @@
 import os
 import pandas as pd
 import numpy as np
-import sys
 from tqdm import tqdm
-from matchms.importing import load_from_mgf
-from matchms.similarity import ModifiedCosine
 from MolNotator.others.global_functions import *
-from MolNotator.others.rt_slicer import rt_slicer
+from MolNotator.utils import rt_slicer, read_mgf_file
 
 def adnotator(params : dict, ion_mode : str):
     """
@@ -107,8 +104,9 @@ def adnotator(params : dict, ion_mode : str):
         node_table = pd.read_csv(f"{in_path_csv}{ion_mode}_{file_basename}_nodes.csv", 
                                 index_col = params['index_col'])
         subspectrum_file = in_path_spec + input_files.loc[x, "spectrum_file"]
-        spectrum_list = list(load_from_mgf(subspectrum_file))
-        spectrum_list = [Spectrum_processing(s) for s in spectrum_list]
+        spectrum_list = read_mgf_file(subspectrum_file)
+        # spectrum_list = list(load_from_mgf(subspectrum_file))
+        # spectrum_list = [Spectrum_processing(s) for s in spectrum_list]
         
         # Create dataframes to store results
         duplicate_table = pd.DataFrame() # Stores duplicate spectra

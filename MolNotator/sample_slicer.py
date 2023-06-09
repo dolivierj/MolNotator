@@ -47,7 +47,11 @@ def sample_slicer(params : dict, ion_mode : str):
     csv_table.columns = csv_table.columns.str.replace(params['col_suffix'], '.mgf', regex = False)
     
     # MZmine mgf file
-    spectra = read_mgf_file(f'{in_path}{mgf_file}')
+    spectra = read_mgf_file(file_path = f'{in_path}{mgf_file}',
+                                  mz_field = params['mz_field'],
+                                  rt_field = params['rt_field'],
+                                  charge_field = params['charge_field'],
+                                  ion_mode = ion_mode)
 
     # Export data
     for i in tqdm(range(len(samples))):

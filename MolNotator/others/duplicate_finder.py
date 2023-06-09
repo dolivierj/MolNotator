@@ -63,7 +63,9 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
             pool_table = node_table[node_table[f'{rt_field}'].between(min_rt - rt_error,max_rt + rt_error)]
             pool_table = pool_table[pool_table[f'{mz_field}'].between(min_mz - mass_error, max_mz + mass_error)]
             ion_pool = list(pool_table.index)
-            
+        
+        
+        
         # Refresh ions_idx with the duplicates found (ion_pool)
         ions_idx = list(set(ions_idx) - set(ion_pool))
         

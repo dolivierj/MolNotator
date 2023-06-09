@@ -44,7 +44,11 @@ def duplicate_filter(params : dict, ion_mode : str):
     
     # Load MZmine mgf and csv files
     print("Loading MGF and CSV files...")
-    spectrum_list = read_mgf_file(f'{params["input_dir"]}{spectrum_file}')
+    spectrum_list = read_mgf_file(file_path = f'{params["input_dir"]}{spectrum_file}',
+                                  mz_field = params['mz_field'],
+                                  rt_field = params['rt_field'],
+                                  charge_field = params['charge_field'],
+                                  ion_mode = ion_mode)
     csv_table = pd.read_csv(f'{params["input_dir"]}{csv_file}', index_col = index_col)
     
     # Format columns with ion modes:
