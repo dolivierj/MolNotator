@@ -104,8 +104,7 @@ def adnotator(params : dict, ion_mode : str):
         node_table = pd.read_csv(f"{in_path_csv}{ion_mode}_{file_basename}_nodes.csv", 
                                 index_col = params['index_col'])
         subspectrum_file = in_path_spec + input_files.loc[x, "spectrum_file"]
-        spectrum_list = read_mgf_file(subspectrum_file,
-                                      ion_mode)
+        spectrum_list = read_mgf_file(file_path = subspectrum_file)
         
         # Create dataframes to store results
         duplicate_table = pd.DataFrame() # Stores duplicate spectra
@@ -150,16 +149,20 @@ def adnotator(params : dict, ion_mode : str):
             duplicate_table = pd.concat([duplicate_table, tmp_duplicates], ignore_index=True)
             
             # Species rules points : award points for annotations that can be confirmed
-            ion_hypotheses_table = species_rules(ion1_spec_id, ion_hypotheses_table,
-                                                 adduct_table_primary, node_table,
-                                                 spectrum_list, params, ion_mode)
+            ion_hypotheses_table = species_rules(ion_1_spec_id = ion1_spec_id,
+                                                 ion_hypotheses_table = ion_hypotheses_table,
+                                                 adduct_table_primary = adduct_table_primary,
+                                                 node_table = node_table,
+                                                 spectrum_list = spectrum_list,
+                                                 params = params,
+                                                 ion_mode = ion_mode)
     
             # Award points for solvent complex confirmation 
             ion_hypotheses_table = complex_points(neutral_table, ion_hypotheses_table)
             
             # Add points if precursor-fragment connexion exists
             ion_hypotheses_table = fragnotator_points(i, ion_hypotheses_table,
-                                        edge_table, node_table.loc[i, 'status'])
+                                                      edge_table, node_table.loc[i, 'status'])
     
             # Get the adduct code for each ionisation hypothesis
             ion_hypotheses_table = get_adduct_code(ion_hypotheses_table, neutral_table)
@@ -186,8 +189,14 @@ def adnotator(params : dict, ion_mode : str):
         court_table = get_court_table(supercohorts_table)
 
         # Produce house table
-        court_table = house_selection(court_table, supercohorts_table, node_table, transition_table,
-                            merged_table, spectrum_list, params)
+        court_table = house_selection(court_table = court_table,
+                                      supercohorts_table = supercohorts_table,
+                                      node_table = node_table,
+                                      transition_table = transition_table,
+                                      merged_table = merged_table,
+                                      spectrum_list = spectrum_list,
+                                      params = params)
+        
 
         # Update cross sample tables with the results
         cross_annotations, cross_points, cross_courts, cross_houses, cross_rules, cross_neutrals = cross_sample_report(court_table, cross_annotations, cross_points, cross_courts,
@@ -223,11 +232,20 @@ def adnotator(params : dict, ion_mode : str):
     
     # Select the most likeley neutrals from the cross_court_table and report
     # the data on the merged node and edge tables.
-    spectrum_list = list(load_from_mgf(spectrum_file))
-    spectrum_list = [Spectrum_processing(s) for s in spectrum_list]
-    merged_node_table, merged_edge_table = cross_neutral_selection(spectrum_list, cross_court_table, cross_annotations,
-                                cross_neutrals, merged_node_table, merged_edge_table,
-                                adduct_table_merged, ion_mode, params)
+    
+    spectrum_list = read_mgf_file(file_path=spectrum_file)
+    
+    
+    merged_node_table, merged_edge_table = cross_neutral_selection(spectrum_list = spectrum_list,
+                                                                   cross_court_table = cross_court_table,
+                                                                   cross_annotations = cross_annotations,
+                                                                   cross_neutrals = cross_neutrals,
+                                                                   merged_node_table = merged_node_table,
+                                                                   merged_edge_table = merged_edge_table,
+                                                                   adduct_table_merged = adduct_table_merged,
+                                                                   ion_mode = ion_mode,
+                                                                   params = params)
+    
     
     
     # Update node table status:

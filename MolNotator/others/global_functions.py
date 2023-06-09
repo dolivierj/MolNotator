@@ -9,6 +9,7 @@ from matchms.filtering import default_filters
 from MolNotator.others.species_validators import *
 from tqdm import tqdm
 import numpy as np
+from MolNotator.utils import spectrum_cosine_score
 
 # Global functions
 
@@ -1165,7 +1166,6 @@ def house_selection(court_table, supercohorts_table, node_table, transition_tabl
     """
         
     # Declare variables to output results
-    modified_cosine = ModifiedCosine(tolerance=params['an_mass_error'])
     selected_houses = []
     house_count = []
     house_points = []
@@ -1217,8 +1217,10 @@ def house_selection(court_table, supercohorts_table, node_table, transition_tabl
                 # Calculate cosine score with ions from each cohort, keep best product
                 for k in cohort_ions:
                     k_spec_id = node_table.loc[k, 'spec_id']
-                    score, n_matches = modified_cosine.pair(spectrum_list[conflict_spec_id],
-                                                            spectrum_list[k_spec_id])
+                    score, n_matches = spectrum_cosine_score(spectrum1 = spectrum_list.spectrum[conflict_spec_id],
+                                                             spectrum2 = spectrum_list.spectrum[k_spec_id],
+                                                             tolerance = params['an_mass_error'])
+
                     if score <= params['an_cos_threshold'] : score = 0
                     score_list.append((score, n_matches, score*n_matches))
                 score_list = pd.DataFrame(score_list, columns = ['score', 'matches', 'product'])
@@ -2158,7 +2160,7 @@ def neutral_merger(neutral_table, adduct_table_merged, params : dict):
         
         # Add annotations to the output table
         for annotation in pool_table['annotation'].unique():
-            neutral_table_2.loc[tmp_idx, annotation] = list(pool_table['ion_ID'][pool_table["annotation"] == annotation])
+            neutral_table_2[annotation][tmp_idx] = list(pool_table['ion_ID'][pool_table["annotation"] == annotation])
 
         # Calculate points for the neutral based on adduct complexity
         adducts = list(neutral_table_2.loc[tmp_idx, adduct_table_merged['Adduct_code']].dropna().index)
@@ -2252,7 +2254,6 @@ def cross_neutral_selection(spectrum_list, cross_court_table, cross_annotations,
         bnr_list = set(params['an_bnr_pos'])
     else:
         bnr_list = set(params['an_bnr_neg'])
-    modified_cosine = ModifiedCosine(tolerance=mass_error)
     
     # For each court, find houses:
     print('')
@@ -2306,8 +2307,11 @@ def cross_neutral_selection(spectrum_list, cross_court_table, cross_annotations,
                                 adduct_ions_2 = merged_neutral_table.loc[i, adduct_2]
                                 for ion_2 in adduct_ions_2:
                                     ion_2_spec_id = merged_node_table.loc[ion_2, "spec_id"]
-                                    score, n_matches = modified_cosine.pair(spectrum_list[ion_1_spec_id],
-                                                                            spectrum_list[ion_2_spec_id])
+                                    
+                                    score, n_matches = spectrum_cosine_score(spectrum1 = spectrum_list.spectrum[ion_1_spec_id],
+                                                                             spectrum2 = spectrum_list.spectrum[ion_2_spec_id],
+                                                                             tolerance = mass_error)
+                                    
                                     if n_matches <= 2 : score = 0.0
                                     tmp_cos_list.append(score)
                     if max(tmp_cos_list) < cosine_hardthreshold:
@@ -2399,8 +2403,12 @@ def cross_neutral_selection(spectrum_list, cross_court_table, cross_annotations,
               
                             # cosine, shared peaks, rule_points, dmz, drt, cohort_size
                             ion_2_spec_id = merged_node_table.loc[ion_2, "spec_id"]
-                            score, n_matches = modified_cosine.pair(spectrum_list[ion_1_spec_id],
-                                                                    spectrum_list[ion_2_spec_id])
+                            
+                            
+                            score, n_matches = spectrum_cosine_score(spectrum1 = spectrum_list.spectrum[ion_1_spec_id],
+                                                                     spectrum2 = spectrum_list.spectrum[ion_2_spec_id],
+                                                                     tolerance = mass_error)
+                            
                             if score < cosine_threshold : score = 0.0
                             prod = score * n_matches
                             if ion_1_group == ion_2_group :
