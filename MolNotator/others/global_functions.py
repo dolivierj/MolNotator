@@ -2704,7 +2704,7 @@ def update_edge_table(merged_node_table, merged_edge_table, adduct_table_merged)
     singleton_df['Fragnotation'] = [None]*len(singleton_ions)
     singleton_df['All_annotations'] = [None]*len(singleton_ions)
     singleton_df['Adnotation'] = [None]*len(singleton_ions)
-    merged_edge_table = merged_edge_table.append(singleton_df, ignore_index = True)
+    merged_edge_table = pd.concat([merged_edge_table, singleton_df], ignore_index=True)
 
     print("Replacing adduct codes by adduct formulas...")
     for adduct in tqdm(merged_edge_table['Adnotation'].dropna().unique()):
