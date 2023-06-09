@@ -2519,7 +2519,7 @@ def cross_neutral_selection(spectrum_list, cross_court_table, cross_annotations,
                 inert_neutrals = pd.DataFrame(inert_neutrals, columns = ['neutral', 'compatible_count'])
                 inert_neutrals = inert_neutrals[inert_neutrals['compatible_count'] == neutral_count]
                 if len(inert_neutrals) > 0 : 
-                    merged_neutral_table_selected = merged_neutral_table_selected.append(merged_neutral_table.loc[inert_neutrals['neutral']])
+                    merged_neutral_table_selected = pd.concat([merged_neutral_table_selected, merged_neutral_table.loc[inert_neutrals['neutral']]])
                     merged_neutral_table.drop(inert_neutrals['neutral'], inplace = True)
 
                 # Check neutral compatibility:
