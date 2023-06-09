@@ -1,9 +1,9 @@
 """fragnotator_edge_table.py - fragnotator_edge_table module for fragnotator"""
 import pandas as pd
 from tqdm import tqdm
-from MolNotator.others.rt_slicer import rt_slicer
+from MolNotator.utils import rt_slicer
 
-def fragnotator_edge_table(node_table, mgf_file, params):
+def fragnotator_edge_table(node_table, spectra, params):
     """
     Finds precursor-fragment ion pairs for in-source fragmentation, using the
     metadata in a node table and the spectra in the spectrum file.
@@ -11,7 +11,7 @@ def fragnotator_edge_table(node_table, mgf_file, params):
     ----------
     node_table : pandas.DataFrame
         Dataframe containing metadata from the fragnotator module.
-    mgf_file : list
+    spectra : list
         List of matchms.Spectrum objects from the fragnotator module.
     params : dict
         Dictionary containing the global parameters for the process.
@@ -42,7 +42,7 @@ def fragnotator_edge_table(node_table, mgf_file, params):
         ion1_spec_id = node_table.loc[i, "spec_id"]
         ion1_rt = node_table.loc[i, rt_field]
         ion1_mz = node_table.loc[i, mz_field]
-        ion1_msms = pd.Series(mgf_file[ion1_spec_id].peaks.mz)
+        ion1_msms = pd.Series(spectra.spectrum[ion1_spec_id].mz)
         
         # Find fragment candidate ions (below mz, similar RT)
         candidate_table = rt_slicer(ion1_rt, rt_error, i, node_table, rt_field)
@@ -61,7 +61,7 @@ def fragnotator_edge_table(node_table, mgf_file, params):
             ion2_mz_high = ion2_mz + mass_error
             match = ion1_msms.between(ion2_mz_low, ion2_mz_high, inclusive = "both")
             if match.sum() > 0 : # if the frag candidate m/z is found in MSMS:
-                ion2_msms = mgf_file[ion2_spec_id].peaks.mz
+                ion2_msms = pd.Series(spectra.spectrum[ion2_spec_id].mz)
                 matched_peaks = 0
                 total_peaks = list(ion1_msms)
                 for frag in ion2_msms : # find the number of matched peaks

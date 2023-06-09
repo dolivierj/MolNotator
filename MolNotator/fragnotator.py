@@ -1,11 +1,7 @@
 """fragnotator.py - fragnotator module for MolNotator"""
 import os
 import pandas as pd
-from matchms.importing import load_from_mgf
-from MolNotator.others.spectrum_extractor import spectrum_extractor
-from MolNotator.others.fragnotator_edge_table import fragnotator_edge_table
-from MolNotator.others.singleton_edges import singleton_edges
-from MolNotator.others.reindexer import reindexer
+from MolNotator.utils import read_mgf_file, reindexer, remapper, singleton_edges, fragnotator_edge_table
 
 def fragnotator(params : dict, ion_mode : str):
     """
@@ -52,21 +48,24 @@ def fragnotator(params : dict, ion_mode : str):
         out_name_node  = f'{out_path}/{file_name.replace(".mgf" , "_nodes.csv")}'
         
         # Load the MGF file
-        spectrum_list = list(load_from_mgf(f'{in_path}/{file_name}'))
+        spectra = read_mgf_file(file_path = f'{in_path}/{file_name}',
+                                mz_field = params["mz_field"],
+                                rt_field = params["rt_field"])
         
         # Create the node_table table : 
         print('Extracting spectrum data...')
-        node_table = spectrum_extractor(spectrum_list, True)
+        node_table = spectra.to_data_frame()
         
         # Reindex the node table
         node_table = reindexer(node_table, params)
+        node_table = remapper(node_table, params)
 
         # Coerce RT dtype in node_table
         node_table[params["rt_field"]] = node_table[params["rt_field"]].astype(float)
         
         # Get the parent-fragment pairs:
         print('Pairing in-source precursors and fragments...')
-        edge_table = fragnotator_edge_table(node_table, spectrum_list, params)
+        edge_table = fragnotator_edge_table(node_table, spectra, params)
         
         # Add singleton nodes to edge_table
         edge_table = singleton_edges(node_table, edge_table)

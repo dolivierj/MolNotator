@@ -196,3 +196,101 @@ def slice_spectra(old_spectra, spec_id_list):
     return new_spectra
 
 
+#---------------------------------------------------- Data frame functions ----
+
+"""reindexer.py - reindexer function for MolNotator"""
+def reindexer(node_table, params):
+    """
+    Reindexes tables using the supplied "index_col" argument in the params dict
+    and adds a "spec_id" column for the relative position of ions within the
+    spectrum file.
+
+    Parameters
+    ----------
+    node_table : pandas.DataFrame
+        Dataframe containing the metadata for each ions.
+    params : dict
+        Dictionary containing the global parameters for the process.
+
+    Returns
+    -------
+    node_table : pandas.DataFrame
+        Same dataframe but reindexed.
+
+    """
+    node_table[params['index_col']] = node_table[params['index_col']].astype(int)
+    node_table.set_index(params['index_col'], inplace = True)
+    node_table.insert(0, 'spec_id', range(len(node_table)))
+    return node_table
+
+# remap node table columns using parameters
+def remapper(data_table, params):
+    data_table.rename(mapper = {"prec_mz" : params['mz_field'],
+                                "rt" : params['rt_field']},
+                      axis = 1,
+                      inplace = True)
+    return data_table
+
+
+"""rt_slicer.py - rt_slicer function used by MolNotator"""
+def rt_slicer(rt : float, rt_error : float, ion_id, input_table, rt_field : str) :
+    """
+    Returns a slice of a node table, given an RT, an RT error and a selected
+    ion around which coeluted ions are to be search
+
+    Parameters
+    ----------
+    rt : float
+        Retention type of the selected ion.
+    rt_error : float
+        Retention time window to be used around RT.
+    ion_id
+        ID of the selected ion.
+    input_table : TYPE
+        Node table containing the retention time values.
+    rt_field : str
+        field containing the RT values.
+
+    Returns
+    -------
+    slice_table : pandas.DataFrame
+        Dataframe of ions coeluted with the selected ion.
+
+    """
+    rt_low = float(rt) - rt_error
+    rt_high = float(rt) + rt_error
+    sliced_table = input_table[input_table[rt_field].astype(float).between(rt_low,
+                              rt_high, inclusive = "both")].copy()
+    return sliced_table.drop(ion_id)
+
+"""singleton_edges.py - singleton_edges function for the fragnotator module"""
+def singleton_edges(node_table, edge_table):
+    """
+    Adds singleton edges to an edge table already containing precursor-fragment
+    ion pairs.
+
+    Parameters
+    ----------
+    node_table : pandas.DataFrame
+        Dataframe containing all ions, provided by the fragnotator module
+    edge_table : pandas.DataFrame
+        Dataframe containing all already paired ions.
+
+    Returns
+    -------
+    edge_table : pandas.DataFrame
+        Dataframe/Edge table update with the singleton edges.
+
+    """
+
+    paired_nodes = set(list(edge_table['node_1']) + list(edge_table['node_2']))
+    singleton_nodes = list(set(node_table.index) - paired_nodes)
+    singleton_edge_table = pd.DataFrame(0.0, index = range(len(singleton_nodes)), 
+                                        columns = edge_table.columns)
+    singleton_edge_table['node_1'] = singleton_nodes
+    singleton_edge_table['node_2'] = singleton_nodes
+    edge_table['status'] = ["frag_edge"]*len(edge_table)
+    singleton_edge_table['status'] = ["singleton"]*len(singleton_edge_table)
+    edge_table = pd.concat([edge_table, singleton_edge_table], ignore_index=True)
+    edge_table.reset_index(drop = True, inplace = True)
+    return edge_table

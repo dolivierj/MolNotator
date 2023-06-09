@@ -3,7 +3,7 @@ import os
 import pandas as pd
 from pandas.core.common import flatten
 from MolNotator.others.duplicate_finder import duplicate_finder
-from MolNotator.utils import read_mgf_file, slice_spectra, Spectra
+from MolNotator.utils import read_mgf_file, slice_spectra, remapper
 
 def duplicate_filter(params : dict, ion_mode : str):
     """
@@ -61,10 +61,7 @@ def duplicate_filter(params : dict, ion_mode : str):
     node_table.set_index(index_col.lower(), inplace = True, drop = True)
     
     # Rename the columns according to user input
-    node_table.rename(mapper = {"prec_mz" : mz_field,
-                                "rt" : rt_field},
-                      axis = 1,
-                      inplace = True)
+    node_table = remapper(node_table, params)
     
     # Remove duplicate columns
     drop_cols = csv_table.columns.intersection(set(node_table.columns))
