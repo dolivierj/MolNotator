@@ -3205,7 +3205,7 @@ def Spectrum_purge(ion_mode, node_table, edge_table, mgf_file) :
     print(f"Purging empty {ion_mode} singletons...")
     for i in tqdm(singletons):
         mgf_idx = int(node_table.loc[i, "spec_id"])
-        if len(pos_mgf.spectrum[0].mz) == 0 :
+        if len(mgf_file.spectrum[mgf_idx].mz) == 0 :
             node_table.drop
             empty_nodes.append(i)
     del_edges = [edge_table.index[edge_table['node_1'] == n][0] for n in empty_nodes]
