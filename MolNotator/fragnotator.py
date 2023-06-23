@@ -1,7 +1,7 @@
 """fragnotator.py - fragnotator module for MolNotator"""
 import os
 import pandas as pd
-from MolNotator.utils import read_mgf_file, reindexer, remapper, singleton_edges, fragnotator_edge_table, fragnotator_subprocess, fragnotator_multiprocess, print_time
+from MolNotator.utils import fragnotator_multiprocess, print_time
 
 def fragnotator(params : dict, ion_mode : str):
     """
@@ -24,8 +24,8 @@ def fragnotator(params : dict, ion_mode : str):
     print(f"------- FRAGNOTATOR : {ion_mode} -------")
 
     # Load parameters
-    fragnotator_table = params['fn_fragtable']
-    mass_error = params['fn_mass_error']
+    frag_table = pd.read_csv("./params/" + params['fn_fragtable'], sep = '\t')
+
     workers = params["workers"]
     if ion_mode == "NEG" :
         in_path= params['neg_out_1']
@@ -47,15 +47,11 @@ def fragnotator(params : dict, ion_mode : str):
     print_time("Processing files MGF files...")
     fragnotator_multiprocess(workers = workers,
                              files = files,
-                             fragnotator_table = fragnotator_table,
-                             mass_error = mass_error,
+                             frag_table = frag_table,
                              in_path = in_path,
                              out_path = out_path,
                              ion_mode = ion_mode,
                              params = params)
     print_time("Processing complete.")
     
-        
-
-
     return

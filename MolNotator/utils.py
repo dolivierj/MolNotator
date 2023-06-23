@@ -39,12 +39,16 @@ def parallel_export_sampslicer(workers, samples, csv_table, spectra, out_path):
         pool.starmap(sample_slicer_export, tqdm([(sample, csv_table, spectra, out_path) for sample in samples]))
 
 
-def fragnotator_multiprocess(workers, files, fragnotator_table, mass_error, in_path, out_path, ion_mode, params):
+def fragnotator_multiprocess(workers, files, frag_table, in_path, out_path, ion_mode, params):
     with Pool(workers) as pool:
-        pool.starmap(fragnotator_subprocess, tqdm([(file_name, fragnotator_table, mass_error, in_path, out_path, ion_mode, params) for file_name in files]))
+        pool.starmap(fragnotator_subprocess, tqdm([(file_name, frag_table, in_path, out_path, ion_mode, params) for file_name in files]))
 
 
-def fragnotator_subprocess(file_name, fragnotator_table, mass_error, in_path, out_path, ion_mode, params):
+def fragnotator_subprocess(file_name, frag_table, in_path, out_path, ion_mode, params):
+    
+    # Get mass error
+    mass_error = params['fn_mass_error']
+    
     # Get the node and edge tables :
     out_name_edge = f'{out_path}/{file_name.replace(".mgf" , "_edges.csv")}'
     out_name_node  = f'{out_path}/{file_name.replace(".mgf" , "_nodes.csv")}'
@@ -83,7 +87,6 @@ def fragnotator_subprocess(file_name, fragnotator_table, mass_error, in_path, ou
     node_table.loc[frag_nodes, "status"] = "fragment"
     
     # Add neutral losses annotations to the edge table
-    frag_table = pd.read_csv("./params/" + fragnotator_table, sep = '\t')
     edge_table['Fragnotation'] = [None]*len(edge_table.index)
     for i in frag_table.index:
         low_mass = frag_table.loc[i, 'mass'] - mass_error
