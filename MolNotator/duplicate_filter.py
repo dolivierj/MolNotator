@@ -54,7 +54,7 @@ def duplicate_filter(params : dict, ion_mode : str):
     
     # Format columns with ion modes:
     new_cols = csv_table.columns.tolist()
-    new_cols = [ion_mode + "_" + col if (params['col_suffix'] in col and col[:4] != f"{ion_mode}_") else col for col in new_cols]
+    new_cols = [ion_mode + "_" + col if (params['sample_pattern'] in col and col[:4] != f"{ion_mode}_") else col for col in new_cols]
     csv_table.columns = new_cols
     
     # Extract data from the MGF file

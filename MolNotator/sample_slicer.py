@@ -2,8 +2,7 @@
 import os
 from tqdm import tqdm
 import pandas as pd
-from MolNotator.utils import sample_slicer_export
-from MolNotator.utils import read_mgf_file
+from MolNotator.utils import sample_slicer_export, read_mgf_file, print_time
 
 def sample_slicer(params : dict, ion_mode : str):
     """Splits the original spectrum file into several files, one for each sample.
@@ -15,6 +14,7 @@ def sample_slicer(params : dict, ion_mode : str):
     otherwise the same exact same for each sample, i.e. "POS_sample_1" and 
     "NEG_sample_1".
     """
+    print(f"------- SAMPLE SLICER : {ion_mode} -------")
 
     # Load parameters
     if ion_mode == "NEG":
@@ -28,7 +28,7 @@ def sample_slicer(params : dict, ion_mode : str):
         in_path= params['pos_out_0']
         out_path= params['pos_out_1']
     else:
-        print('Ion mode must be either "NEG" or "POS"')
+        print_time('Error: ion mode must be either "NEG" or "POS"')
         return
 
     
@@ -42,15 +42,16 @@ def sample_slicer(params : dict, ion_mode : str):
     
     # Get the sample list
     samples = pd.Series(csv_table.columns)
-    samples = samples[samples.str.contains(params['col_suffix'])]
-    samples = list(samples.str.replace(params['col_suffix'], '.mgf', regex = False))
-    csv_table.columns = csv_table.columns.str.replace(params['col_suffix'], '.mgf', regex = False)
+    samples = samples[samples.str.contains(params['sample_pattern'])]
+    samples = list(samples.str.replace(params['sample_pattern'], '.mgf', regex = False))
+    csv_table.columns = csv_table.columns.str.replace(params['sample_pattern'], '.mgf', regex = False)
     
     # MZmine mgf file
     spectra = read_mgf_file(file_path = f'{in_path}{mgf_file}',
-                                  ion_mode = ion_mode)
+                            ion_mode = ion_mode)
 
     # Export data
+    print_time("Exporting MGF files...")
     for i in tqdm(range(len(samples))):
         sample_slicer_export(samples[i], csv_table, spectra, out_path)
 

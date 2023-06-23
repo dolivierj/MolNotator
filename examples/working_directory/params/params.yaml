@@ -1,7 +1,7 @@
 ---
 # Global parameters
 process_mode : "BOTH" # If only one ion mode is used: "POS" or "NEG", if both modes : "BOTH"
-col_suffix: ".mzXML Peak area" # CSV file suffix for samples, typically "peak area.mzML".
+sample_pattern: ".mzXML Peak area" # text pattern to detect samples in the CSV file. In MZmine exports, this can typically be "peak area.mzML".
 index_col: 'feature_id' # Spectrum ID in spectrum and CSV files (must be the same, if not, change in the CSV file)
 workers: 1 # Number of available CPUs for multiprocessing.
 pos_mgf: '200912_LDB_Thermo_POS.mgf' # Input MGF output for POS data
