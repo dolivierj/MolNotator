@@ -26,7 +26,6 @@ def sample_slicer_export(sample : str, csv_table, spectra, out_path : str):
     None.
 
     """
-    print(sample)
     spec_id = csv_table["spec_id"][csv_table[sample] > 0].tolist()
     new_sectra = slice_spectra(spectra, spec_id)
     new_sectra.write_mgf(f'{out_path}{sample}')
@@ -34,7 +33,7 @@ def sample_slicer_export(sample : str, csv_table, spectra, out_path : str):
 
 
 def parallel_export(workers, samples, csv_table, spectra, out_path):
-    with Pool() as pool:
+    with Pool(workers) as pool:
         pool.starmap(sample_slicer_export, tqdm([(sample, csv_table, spectra, out_path) for sample in samples]))
 
 
