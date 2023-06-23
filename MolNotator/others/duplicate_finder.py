@@ -1,8 +1,86 @@
 """duplicate_finder.py - duplicate_finder module for the duplicate_filter"""
-import sys
 import pandas as pd
-from pandas.core.common import flatten
 from MolNotator.utils import spectrum_cosine_score
+from sklearn.neighbors import KDTree
+
+
+# Define a function that performs operations on each ion
+def compare_ions(ion_pool, spectrum_list, mass_error):
+    
+    
+    # Start doing a cosine comparison between duplicates
+    cos_table = list()
+    while len(ion_pool) > 1 :
+        ion_1 = ion_pool[0]
+        spectrum_1 = spectrum_list.spectrum[ion_1]
+        rt_1 = spectrum_1.rt
+        mz_1 = spectrum_1.prec_mz
+        ion_pool.remove(ion_1)
+        for ion_2 in ion_pool:
+            spectrum_2 = spectrum_list.spectrum[ion_2]
+            rt_2 = spectrum_2.rt
+            mz_2 = spectrum_2.prec_mz
+            score, matches = spectrum_cosine_score(spectrum_1,
+                                                   spectrum_2,
+                                                   tolerance = mass_error)
+
+            cos_table.append((ion_1,
+                              ion_2,
+                              score,
+                              matches,
+                              abs(mz_1 - mz_2),
+                              abs(rt_1 - rt_2)))
+    cos_table = pd.DataFrame(cos_table, columns = ['ion_1', 'ion_2', 'cos',
+                                                   'matched_peaks', 'd_mz', 'd_rt'])
+    return cos_table
+
+def find_duplicates_pairs(duplicates_table, node_table, spectrum_list, mass_error, cos_threshold):
+    duplicates_table = duplicates_table[duplicates_table['count'] == 2].copy()
+    pairs = duplicates_table['pool'].tolist()
+    cos_list = list()
+    droppable_ion = list()
+    for i, j in pairs:
+        score, matches = spectrum_cosine_score(spectrum_list.spectrum[node_table.at[i, "spec_id"]],
+                                               spectrum_list.spectrum[node_table.at[j, "spec_id"]],
+                                               tolerance = mass_error)
+        cos_list.append(score)
+        droppable_ion.append(node_table.loc[[i,j], "TIC"].idxmin())
+        
+    duplicates_table["score"] = cos_list
+    duplicates_table["dropped"] = droppable_ion
+    duplicates_table = duplicates_table[duplicates_table["score"] >= cos_threshold]
+    
+    dropped_idx = duplicates_table['dropped'].unique().tolist()
+    
+    return dropped_idx
+
+def find_complex_duplicates(duplicates_table, node_table, spectrum_list, mass_error, cos_threshold):
+    duplicates_table = duplicates_table[duplicates_table['count'] > 2].copy()
+    dropped_ions = list()
+    for i in duplicates_table.index:
+        cos_table = compare_ions(ion_pool = list(duplicates_table.at[i, "pool"]),
+                                 spectrum_list = spectrum_list,
+                                 mass_error = mass_error)
+        ion_pool = list(set(cos_table['ion_1'].tolist() + cos_table['ion_2'].tolist()))
+        while len(ion_pool) > 0 :
+            ion_seed = node_table.loc[ion_pool, 'TIC'].idxmax()
+            ion_pool.remove(ion_seed)
+            
+            duplicates = cos_table.index[cos_table['ion_1'] == ion_seed].tolist() + cos_table.index[cos_table['ion_2'] == ion_seed].tolist()
+            duplicates = cos_table.loc[duplicates].index[cos_table.loc[duplicates, 'cos'] >= cos_threshold] 
+            duplicates = cos_table.loc[duplicates, 'ion_1'].tolist() + cos_table.loc[duplicates, 'ion_2'].tolist()
+            duplicates = list(set(duplicates))
+            
+            if len(duplicates) == 0 : 
+                continue
+            
+            duplicates.remove(ion_seed)
+            duplicates.sort()
+            ion_pool = list(set(ion_pool) - set(duplicates))
+            dropped_ions += duplicates
+    
+    dropped_ions.sort()
+    return dropped_ions
 
 def duplicate_finder(node_table, spectrum_list, params, ion_mode):
     """
@@ -26,7 +104,7 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
         Dataframe containing the representative ions to be kept and the duplicate
         ions to be deleted.
     """
-    
+
     # Get parameters & load cosine function
     mass_error = params['df_mass_error']
     rt_error = params['df_rt_error']
@@ -38,137 +116,42 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
     if params['rt_unit'] == "m":
         rt_error = rt_error/60
 
-    # Start finding duplciates using the node_table index to identify ions.
-    ions_idx = list(node_table.index)
-    total_ions = len(ions_idx)
-    duplicate_table = pd.DataFrame(columns = ['kept', 'dropped'])
-    while len(ions_idx) > 1:
-        perc = round((1-(len(ions_idx)/total_ions))*100,1)
-        sys.stdout.write("\rFinding duplicates : {0}% ions processed".format(perc))
-        sys.stdout.flush()
-        tmp_duplicate_table = list()
         
-        # Choose a seed ion to start finding duplicates.
-        ion_pool = [ions_idx[0]]
-        pool_size = 0
-        pool_table = node_table.loc[ion_pool]
-        
-        # Find all ions with RT and MZ close to the seed ion
-        while len(ion_pool) != pool_size:
-            pool_size = len(ion_pool)
-            min_rt = pool_table[f'{rt_field}'].min()
-            max_rt = pool_table[f'{rt_field}'].max()
-            min_mz = pool_table[f'{mz_field}'].min()
-            max_mz = pool_table[f'{mz_field}'].max()
-            pool_table = node_table[node_table[f'{rt_field}'].between(min_rt - rt_error,max_rt + rt_error)]
-            pool_table = pool_table[pool_table[f'{mz_field}'].between(min_mz - mass_error, max_mz + mass_error)]
-            ion_pool = list(pool_table.index)
-        
-        
-        
-        # Refresh ions_idx with the duplicates found (ion_pool)
-        ions_idx = list(set(ions_idx) - set(ion_pool))
-        
-        # Start doing a cosine comparison between duplicates
-        cos_table = list()
-        while len(ion_pool) > 1 :
-            ion_1 = ion_pool[0]
-            specid_1 = node_table.loc[ion_1, 'spec_id']
-            rt_1 = pool_table.loc[ion_1, f'{rt_field}']
-            mz_1 = pool_table.loc[ion_1, f'{mz_field}']
-            ion_pool.remove(ion_1)
-            for ion_2 in ion_pool:
-                specid_2 = node_table.loc[ion_2, 'spec_id']
-                rt_2 = pool_table.loc[ion_2, f'{rt_field}']
-                mz_2 = pool_table.loc[ion_2, f'{mz_field}']
-                score, matches = spectrum_cosine_score(spectrum_list.spectrum[specid_1],
-                                                       spectrum_list.spectrum[specid_2],
-                                                       tolerance = mass_error)
-
-                cos_table.append((ion_1,
-                                  ion_2,
-                                  score,
-                                  matches,
-                                  abs(mz_1 - mz_2),
-                                  abs(rt_1 - rt_2)))
-        cos_table = pd.DataFrame(cos_table, columns = ['ion_1', 'ion_2', 'cos',
-                                                       'matched_peaks', 'd_mz', 'd_rt'])
-        
-        # Find duplicates based on the cos_threshold
-        if len(cos_table) == 0 : 
-            continue
-        ion_pool = list(pool_table.index)
-        while len(ion_pool) > 0 :
-            ion_seed = pool_table.loc[ion_pool, 'TIC'].idxmax()
-            seed_rt = pool_table.loc[ion_seed, f"{rt_field}"]
-            seed_mz = pool_table.loc[ion_seed, f"{mz_field}"]
-
-            candidates = cos_table.index[cos_table['ion_1'] == ion_seed].tolist() + cos_table.index[cos_table['ion_2'] == ion_seed].tolist()
-            candidates = cos_table.loc[candidates].index[cos_table.loc[candidates, 'cos'] >= cos_threshold] 
-            candidates = cos_table.loc[candidates, 'ion_1'].tolist() + cos_table.loc[candidates, 'ion_2'].tolist()
-            candidates = list(set(candidates))
-            if len(candidates) == 0 : 
-                tmp_duplicate_table.append((ion_seed, []))
-                ion_pool.remove(ion_seed)
-                continue
-            candidates.remove(ion_seed)
-            candidates.sort()
-            candidates = pool_table.loc[candidates]
-            
-            # Filter again based on RT and MZ threshold around the seed ion
-            candidates = candidates[candidates[f'{rt_field}'].between(seed_rt - rt_error, seed_rt + rt_error, inclusive = "both")]
-            candidates = candidates[candidates[f'{mz_field}'].between(seed_mz - mass_error, seed_mz + mass_error, inclusive = "both")]
-            candidates = candidates.index.tolist()
-            ion_pool.remove(ion_seed)
-            ion_pool = list(set(ion_pool) - set(candidates))
-            
-            # Add duplicates to the duplicate table
-            tmp_duplicate_table.append((ion_seed, candidates))
-        tmp_duplicate_table = pd.DataFrame(tmp_duplicate_table, columns = ['kept', 'dropped'])
-
-        # Ion affinity : find to which group certain ions belong 
-        # based on cosine similarity (affinity)
-        contested_ions = list(set(flatten(tmp_duplicate_table['dropped'])))
-        contested_ions.sort()
-        conflict_table = list()
-        for i in contested_ions :
-            conflicts = list()
-            for j in tmp_duplicate_table.index:
-                if i in tmp_duplicate_table.loc[j, "dropped"]:
-                    conflicts.append(j)
-            if len(conflicts) > 1 :
-                spec_id_i = node_table.loc[i, "spec_id"]
-                tmp_scores = list()
-                for j in conflicts:
-                    spec_id_j = node_table.loc[tmp_duplicate_table.loc[j, "kept"], "spec_id"]
-                    score, matches = spectrum_cosine_score(spectrum_list.spectrum[spec_id_i],
-                                                           spectrum_list.spectrum[spec_id_j],
-                                                           tolerance = mass_error)
-                    
-
-                    tmp_scores.append(score*matches)
-                selected_ions = tmp_scores.index(max(tmp_scores))
-                selected_ions = conflicts[selected_ions]
-                conflict_table.append((i, conflicts, selected_ions))
-        conflict_table = pd.DataFrame(conflict_table, columns = ['ion', 'conflicts', 'selected'])
-        
-        # Use the conflict table to reasign ions to their groupds
-        for i in conflict_table.index:
-            for j in conflict_table.loc[i, "conflicts"]:
-                if j == conflict_table.loc[i, "selected"] :
-                    continue
-                tmp_duplicate_table.loc[j, "dropped"].remove(conflict_table.loc[i, "ion"])
-        
-        duplicate_table = pd.concat([duplicate_table, tmp_duplicate_table], ignore_index=True)
+    # Build a KDTree for each field
+    rt_tree = KDTree(node_table[[rt_field]].values)
+    mz_tree = KDTree(node_table[[mz_field]].values)
     
-    dup_size = list()
-    for i in duplicate_table.index:
-        dup_size.append(len(duplicate_table.loc[i, "dropped"]))
-    duplicate_table['dup_size'] = dup_size
-    duplicate_table = duplicate_table[duplicate_table['dup_size'] > 0]
-    duplicate_table.drop('dup_size', axis = 1, inplace = True)
+    # Find neighbors within rt_error and mass_error
+    rt_inds = rt_tree.query_radius(node_table[[rt_field]].values, r=rt_error)
+    mz_inds = mz_tree.query_radius(node_table[[mz_field]].values, r=mass_error)
     
-    return duplicate_table
-
-if __name__ == '__main__':
-    duplicate_finder()
+    duplicates_table = list()
+    duplicates_idx = list()
+    
+    for rt_neighbors, mz_neighbors in zip(rt_inds, mz_inds):
+        # Find ions that are neighbors in both dimensions
+        duplicate_ions = tuple(set(rt_neighbors).intersection(set(mz_neighbors)))
+        duplicates_table.append((duplicate_ions, len(duplicate_ions)))
+        
+    duplicates_table = pd.DataFrame(duplicates_table, columns = ["pool", "count"])
+    
+    duplicates_table = duplicates_table[duplicates_table['count'] > 1]
+    
+    # Deal with non conflict duplicates (1 ion and its duplicate)
+    duplicates_idx += find_duplicates_pairs(duplicates_table = duplicates_table,
+                                            node_table = node_table,
+                                            spectrum_list = spectrum_list,
+                                            mass_error = mass_error,
+                                            cos_threshold = cos_threshold)
+    
+    # Deal with conflict duplicates (1 ion with 2+ duplicates)
+    duplicates_idx += find_complex_duplicates(duplicates_table = duplicates_table,
+                                              node_table = node_table,
+                                              spectrum_list = spectrum_list,
+                                              mass_error = mass_error,
+                                              cos_threshold = cos_threshold)
+    
+    # Return the list of dropped indices
+    duplicates_idx.sort()
+    return duplicates_idx
+    

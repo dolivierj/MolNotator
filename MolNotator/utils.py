@@ -3,6 +3,7 @@ import numpy as np
 from tqdm import tqdm
 import operator
 import re
+from datetime import datetime
 
 def sample_slicer_export(sample : str, csv_table, spectra, out_path : str):
     """
@@ -50,8 +51,15 @@ class Spectrum:
         self.tic = sum(int_list)
         self.intensity = np.array(int_list)
     
-    def to_tuple(self):
-        return tuple([self.prec_mz, self.rt, self.charge, self.tic] + list(self.metadata.values()))
+    def to_tuple(self, keys):
+        tuple_vals = [self.prec_mz,
+                      self.rt,
+                      self.charge,
+                      self.tic]
+        for key in keys:
+            tuple_vals.append(self.metadata.get(key))
+        tuple_vals = tuple(tuple_vals)
+        return tuple_vals
     
     def to_dict(self):
         values = {"prec_mz" : self.prec_mz,
@@ -75,7 +83,7 @@ class Spectrum:
     def correct_charge(self, op):
         self.charge = op(int(re.sub("[^0-9]", "", self.charge))) 
 
-        
+
 
 class Spectra:
     def __init__(self):
@@ -84,9 +92,16 @@ class Spectra:
         self.fields = []
     
     def to_data_frame(self):
-        data_frame = pd.DataFrame(columns = self.fields)
-        for s in self.spectrum:
-            data_frame.loc[len(data_frame)] = s.to_dict()
+        data_frame = list()
+        keys = self.fields.copy()
+        keys.remove('prec_mz')
+        keys.remove('rt')
+        keys.remove('charge')
+        keys.remove('TIC')
+        for i in range(len(self.spectrum)):
+            data_frame.append(self.spectrum[i].to_tuple(keys = keys))
+        data_frame = pd.DataFrame(data_frame, columns = self.fields)
+        
         return data_frame
     
     def to_mgf(self):
@@ -108,6 +123,10 @@ class Spectra:
         for s in self.spectrum:
             s.correct_charge(op)
             
+
+
+
+
 
 #--------------------------------------------------------------- MGF files ----
 def read_mgf_file(file_path : str, mz_field : str = "pepmass", rt_field : str = "rtinseconds", charge_field : str = "charge", ion_mode : str = None):
@@ -224,6 +243,12 @@ def slice_spectra(old_spectra, spec_id_list):
     for i in spec_id_list:
         new_spectra.spectrum.append(old_spectra.spectrum[i])
     return new_spectra
+
+
+
+def print_time(txt):
+    print(f"""{datetime.now().strftime("%H:%M:%S")} - {txt}""")
+    
 
 
 #---------------------------------------------------- Data frame functions ----

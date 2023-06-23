@@ -1,9 +1,8 @@
 """duplicate_filter.py - duplicate_filter function for MolNotator"""
 import os
 import pandas as pd
-from pandas.core.common import flatten
 from MolNotator.others.duplicate_finder import duplicate_finder
-from MolNotator.utils import read_mgf_file, slice_spectra, remapper
+from MolNotator.utils import read_mgf_file, slice_spectra, remapper, print_time
 
 def duplicate_filter(params : dict, ion_mode : str):
     """
@@ -24,6 +23,8 @@ def duplicate_filter(params : dict, ion_mode : str):
     CSV and MGF files, filtered, in the duplicate filter folder.
     """    
     
+    print(f"------- DUPLICATE FILTER : {ion_mode} -------")
+    
     # Load parameters
     index_col = params['index_col']
     rt_field = params['rt_field']
@@ -43,7 +44,7 @@ def duplicate_filter(params : dict, ion_mode : str):
         os.mkdir(out_path)
     
     # Load MZmine mgf and csv files
-    print("Loading MGF and CSV files...")
+    print_time("Loading MGF and CSV files...")
     spectrum_list = read_mgf_file(file_path = f'{params["input_dir"]}{spectrum_file}',
                                   mz_field = params['mz_field'],
                                   rt_field = params['rt_field'],
@@ -57,7 +58,7 @@ def duplicate_filter(params : dict, ion_mode : str):
     csv_table.columns = new_cols
     
     # Extract data from the MGF file
-    print('Extracting MGF metadata...')
+    print_time('Extracting MGF metadata...')
     node_table = spectrum_list.to_data_frame()
     
     # Set index to what the user selected
@@ -90,13 +91,15 @@ def duplicate_filter(params : dict, ion_mode : str):
         return
     
     # Get duplicates & delete them
-    print('Removing duplicates...')
-    duplicate_table = duplicate_finder(node_table, spectrum_list, params, ion_mode)
-    dropped_ions = list(flatten(duplicate_table['dropped']))
+    print_time('Removing duplicates...')
+    dropped_ions = duplicate_finder(node_table = node_table,
+                                       spectrum_list = spectrum_list,
+                                       params = params,
+                                       ion_mode = ion_mode)
+
     kept_ions = list(set(node_table.index) - set(dropped_ions))
     kept_ions.sort()
     kept_ions = [node_table.loc[i, "spec_id"] for i in kept_ions]
-    
     
     mgf_file_new = slice_spectra(spectrum_list, kept_ions)
 
@@ -106,11 +109,11 @@ def duplicate_filter(params : dict, ion_mode : str):
     node_table_new['spec_id'] = range(len(node_table_new))
     
     # Export the data
-    print('Exporting MGF and CSV files...')
+    print_time('Exporting MGF and CSV files...')
     mgf_file_new.write_mgf(output_file_path = f'{out_path}{spectrum_file}')
     
     node_table_new.to_csv(f'{out_path}{csv_file}', index_label = index_col)
     perc = round(100*(len(dropped_ions)/len(spectrum_list.spectrum)),1)
-    print('Export finished.')
-    print(f'{len(dropped_ions)} ions removed out of {len(spectrum_list.spectrum)} ({perc}%)')
+    print_time('Export finished.')
+    print_time(f'{len(dropped_ions)} ions removed out of {len(spectrum_list.spectrum)} ({perc}%)')
     return
