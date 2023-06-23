@@ -6,6 +6,8 @@ import re
 from datetime import datetime
 from multiprocessing import Pool
 
+
+#----------------------------------------------- Parallel and subprocesses ----
 def sample_slicer_export(sample : str, csv_table, spectra, out_path : str):
     """
     Writes sub-mgf file specific to one sample.
@@ -37,6 +39,79 @@ def parallel_export_sampslicer(workers, samples, csv_table, spectra, out_path):
         pool.starmap(sample_slicer_export, tqdm([(sample, csv_table, spectra, out_path) for sample in samples]))
 
 
+def fragnotator_multiprocess(workers, files, fragnotator_table, mass_error, in_path, out_path, ion_mode, params):
+    with Pool(workers) as pool:
+        pool.starmap(fragnotator_subprocess, tqdm([(file_name, fragnotator_table, mass_error, in_path, out_path, ion_mode, params) for file_name in files]))
+
+
+def fragnotator_subprocess(file_name, fragnotator_table, mass_error, in_path, out_path, ion_mode, params):
+    # Get the node and edge tables :
+    out_name_edge = f'{out_path}/{file_name.replace(".mgf" , "_edges.csv")}'
+    out_name_node  = f'{out_path}/{file_name.replace(".mgf" , "_nodes.csv")}'
+    
+    # Load the MGF file
+    spectra = read_mgf_file(file_path = f'{in_path}/{file_name}',
+                            ion_mode = ion_mode)
+    
+    # Create the node_table table : 
+    node_table = spectra.to_data_frame()
+    
+    # Reindex the node table
+    node_table = reindexer(node_table, params)
+    node_table = remapper(node_table, params)
+
+    # Coerce RT dtype in node_table
+    node_table[params["rt_field"]] = node_table[params["rt_field"]].astype(float)
+    
+    # Get the parent-fragment pairs:
+    edge_table = fragnotator_edge_table(node_table = node_table,
+                                        spectra = spectra,
+                                        params = params)
+    
+    # Add singleton nodes to edge_table
+    edge_table = singleton_edges(node_table, edge_table)
+        
+    # Update the node table with the Parent / fragment / unpaired status
+    node_table['status'] = ['singleton']*len(node_table.index)
+    tmp_table = edge_table[edge_table['status'] == "frag_edge"]
+    prec_nodes = set(tmp_table['node_1'])
+    frag_nodes = set(tmp_table['node_2'])
+    prec_nodes = prec_nodes - frag_nodes
+    prec_nodes = list(prec_nodes)
+    frag_nodes = list(frag_nodes)
+    node_table.loc[prec_nodes, "status"] = "precursor"
+    node_table.loc[frag_nodes, "status"] = "fragment"
+    
+    # Add neutral losses annotations to the edge table
+    frag_table = pd.read_csv("./params/" + fragnotator_table, sep = '\t')
+    edge_table['Fragnotation'] = [None]*len(edge_table.index)
+    for i in frag_table.index:
+        low_mass = frag_table.loc[i, 'mass'] - mass_error
+        high_mass = frag_table.loc[i, 'mass'] + mass_error
+        temp_edge_table = edge_table[edge_table['mz_gap'].between(low_mass, high_mass, inclusive = "both")]
+        for j in temp_edge_table.index : 
+            edge_table.loc[j, 'Fragnotation'] = frag_table.loc[i, 'loss']
+    
+    # Add an all_annotations columns, which will sum up all possible annotations
+    all_annotations = list()
+    for i in edge_table.index:
+        if edge_table.loc[i, "Fragnotation"] == None:
+            all_annotations.append(round(edge_table.loc[i, 'mz_gap'], 4))
+        else:
+            all_annotations.append(edge_table.loc[i, 'Fragnotation'])
+    edge_table['All_annotations'] = all_annotations
+    
+    # Round values
+    node_table[params["mz_field"]] = node_table[params["mz_field"]].astype(float).round(4)
+    node_table[params["rt_field"]] = node_table[params["rt_field"]].astype(float).round(2)
+    edge_table['matching_score'] = edge_table['matching_score'].round(2)
+    edge_table['rt_gap'] = edge_table['rt_gap'].round(2)
+    edge_table['mz_gap'] = edge_table['mz_gap'].round(4)
+    
+    
+    # Export the edge and node tables :
+    edge_table.to_csv(out_name_edge, index_label = "Index")
+    node_table.to_csv(out_name_node, index_label = params['index_col'])
 
 
 
@@ -407,7 +482,7 @@ def fragnotator_edge_table(node_table, spectra, params):
 
     # For each ion, search fragment candidates
     edge_table = list()
-    for i in tqdm(node_table.index) :
+    for i in node_table.index :
         
         # Get ion 1 data (precursor)
         ion1_spec_id = node_table.at[i, "spec_id"]

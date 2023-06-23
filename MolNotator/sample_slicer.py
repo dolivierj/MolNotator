@@ -64,7 +64,7 @@ def sample_slicer(params : dict, ion_mode : str):
                                    csv_table = csv_table,
                                    spectra = spectra,
                                    out_path = out_path)
-        print_time("Export complete...")
+        print_time("Export complete.")
     
     
     
