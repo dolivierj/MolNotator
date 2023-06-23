@@ -2,7 +2,7 @@
 import os
 from tqdm import tqdm
 import pandas as pd
-from MolNotator.utils import read_mgf_file, print_time, sample_slicer_export, parallel_export
+from MolNotator.utils import read_mgf_file, print_time, sample_slicer_export, parallel_export_sampslicer
 
 def sample_slicer(params : dict, ion_mode : str):
     """Splits the original spectrum file into several files, one for each sample.
@@ -59,11 +59,11 @@ def sample_slicer(params : dict, ion_mode : str):
             sample_slicer_export(samples[i], csv_table, spectra, out_path)
     else :
         print_time("Exporting MGF files...")
-        parallel_export(workers = workers,
-                                      samples = samples,
-                                      csv_table = csv_table,
-                                      spectra = spectra,
-                                      out_path = out_path)
+        parallel_export_sampslicer(workers = workers,
+                                   samples = samples,
+                                   csv_table = csv_table,
+                                   spectra = spectra,
+                                   out_path = out_path)
         print_time("Export complete...")
     
     

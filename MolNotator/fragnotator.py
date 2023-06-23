@@ -21,6 +21,8 @@ def fragnotator(params : dict, ion_mode : str):
 
     """
 
+    print(f"------- FRAGNOTATOR : {ion_mode} -------")
+
     # Load parameters
     fragnotator_table = params['fn_fragtable']
     mass_error = params['fn_mass_error']
@@ -64,7 +66,9 @@ def fragnotator(params : dict, ion_mode : str):
         
         # Get the parent-fragment pairs:
         print('Pairing in-source precursors and fragments...')
-        edge_table = fragnotator_edge_table(node_table, spectra, params)
+        edge_table = fragnotator_edge_table(node_table = node_table,
+                                            spectra = spectra,
+                                            params = params)
         
         # Add singleton nodes to edge_table
         edge_table = singleton_edges(node_table, edge_table)

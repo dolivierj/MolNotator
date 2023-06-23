@@ -32,7 +32,7 @@ def sample_slicer_export(sample : str, csv_table, spectra, out_path : str):
 
 
 
-def parallel_export(workers, samples, csv_table, spectra, out_path):
+def parallel_export_sampslicer(workers, samples, csv_table, spectra, out_path):
     with Pool(workers) as pool:
         pool.starmap(sample_slicer_export, tqdm([(sample, csv_table, spectra, out_path) for sample in samples]))
 
@@ -378,6 +378,20 @@ def fragnotator_edge_table(node_table, spectra, params):
         Dataframe containing the precursor-fragment ion pairs.
     """
 
+    def precursor_finder(mass_array, values, mass_error):
+        kept = list()
+        for i, mz in values:
+            indices = np.where((mass_array >= mz-mass_error) & (mass_array <= mz+mass_error))
+            if indices[0].size > 0 : kept.append(i)
+        return kept
+    
+    def match_arrays(array1, array2, delta):
+        # Calculate the absolute difference matrix
+        diff = np.abs(array1[:, None] - array2)
+        # Find pairs where difference <= delta
+        matches = np.where(diff <= delta)
+        return len(matches[0])
+
     # Get parameters
     score_threshold = params['fn_score_threshold']
     min_shared_peaks = params['fn_matched_peaks']
@@ -396,55 +410,58 @@ def fragnotator_edge_table(node_table, spectra, params):
     for i in tqdm(node_table.index) :
         
         # Get ion 1 data (precursor)
-        ion1_spec_id = node_table.loc[i, "spec_id"]
-        ion1_rt = node_table.loc[i, rt_field]
-        ion1_mz = node_table.loc[i, mz_field]
-        ion1_msms = pd.Series(spectra.spectrum[ion1_spec_id].mz)
+        ion1_spec_id = node_table.at[i, "spec_id"]
+        ion1_rt = node_table.at[i, rt_field]
+        ion1_mz = node_table.at[i, mz_field]
+        ion1_msms = spectra.spectrum[ion1_spec_id].mz
+        ion1_prec_mz = spectra.spectrum[ion1_spec_id].prec_mz
+        ion1_msms = ion1_msms[np.where(ion1_msms <= ion1_prec_mz+0.5)]
         
         # Find fragment candidate ions (below mz, similar RT)
         candidate_table = rt_slicer(ion1_rt, rt_error, i, node_table, rt_field)
         candidate_table = candidate_table[candidate_table[mz_field] < ion1_mz]
+    
+        idx = precursor_finder(mass_array = ion1_msms,
+                               values = list(zip(candidate_table.index.tolist(), node_table.loc[candidate_table.index, mz_field].tolist())),
+                               mass_error = mass_error)
+        
+        candidate_table = candidate_table.loc[idx]
         
         # If no candidates are found, skip
         if len(candidate_table.index) == 0 : continue
         
         # Candidates must share their precursor ion with the precursor in MSMS
+        
         for j in candidate_table.index:
-            
+        
             # Get ion 2 data (fragment)
-            ion2_spec_id = node_table.loc[j, "spec_id"]
-            ion2_mz = node_table.loc[j, mz_field]
-            ion2_mz_low = ion2_mz - mass_error
-            ion2_mz_high = ion2_mz + mass_error
-            match = ion1_msms.between(ion2_mz_low, ion2_mz_high, inclusive = "both")
-            if match.sum() > 0 : # if the frag candidate m/z is found in MSMS:
-                ion2_msms = pd.Series(spectra.spectrum[ion2_spec_id].mz)
-                matched_peaks = 0
-                total_peaks = list(ion1_msms)
-                for frag in ion2_msms : # find the number of matched peaks
-                    frag_low = frag - mass_error
-                    frag_high = frag + mass_error
-                    frag_found = ion1_msms.between(frag_low, frag_high, inclusive = "both").sum()
-                    if frag_found > 0 :
-                        matched_peaks += 1
-                    else :
-                        total_peaks.append(frag)
-                
-                # Check number of matched peaks & matching score to validate frag
-                if matched_peaks >= min_shared_peaks : # if number of matches above threshold
-                    total_peaks = pd.Series(total_peaks)[total_peaks <= ion2_mz_high]
-                    matching_score = round(matched_peaks / len(total_peaks),2)
-                    if matching_score >= score_threshold:
-                        edge_table.append((i, j, matched_peaks, len(total_peaks),
-                                           matching_score,
-                                           ion1_rt - node_table[rt_field][j],
-                                           ion1_mz - node_table[mz_field][j]))
+            ion2_spec_id = node_table.at[j, "spec_id"]
+            ion2_rt = node_table.at[j, rt_field]
+            ion2_mz = node_table.at[j, mz_field]
+            ion2_msms = spectra.spectrum[ion2_spec_id].mz
+            ion2_prec_mz = spectra.spectrum[ion2_spec_id].prec_mz
+            ion2_msms = ion2_msms[np.where(ion2_msms <= ion2_prec_mz+0.5)]
+            
+            matched_peaks = match_arrays(array1 = ion1_msms,
+                                         array2 = ion2_msms,
+                                         delta = mass_error)
+            
+            total_peaks = len(ion1_msms) + len(ion2_msms) - matched_peaks
+            matching_score = round(matched_peaks / total_peaks,2)
+            
+            edge_table.append((i, j, matched_peaks, total_peaks, matching_score,
+                               ion1_rt - ion2_rt,
+                               ion1_mz - ion2_mz))
+            
+
         
     # Results are stored in the edge table
     edge_table = pd.DataFrame(edge_table, columns = ['node_1', 'node_2',
                                                      'matched_peaks', 'total_peaks',
                                                      'matching_score', 'rt_gap',
                                                      'mz_gap'])
+    edge_table = edge_table[edge_table['matched_peaks'] >= min_shared_peaks]
+    edge_table = edge_table[edge_table['matching_score'] >= score_threshold]
 
     return edge_table
 
