@@ -118,6 +118,12 @@ def adnotator(params : dict, ion_mode : str):
                                 edge_table = edge_table,
                                 spectrum_list = spectrum_list)
         
+        # Sort two first columns and remove duplicates
+        pairs_table = matched_masses_to_pd(pairs_table)
+        pairs_table[['feature_id_1', 'feature_id_2']] = pairs_table[['feature_id_1', 'feature_id_2']].apply(lambda row: sorted(row), axis=1, result_type='expand')
+        pairs_table = pairs_table.drop_duplicates(subset = ['feature_id_1', 'feature_id_2'], keep = 'last', ignore_index = True)
+        pairs_table = np.array(pairs_table)
+        
         # Get cohorts table
         cohort_table = pairs_to_cohorts(matched_masses = pairs_table,
                                         node_table = node_table)
