@@ -62,7 +62,7 @@ class Species_validator:
         counter = np.sum(diff <= self.mass_error)
         return counter
     
-    def ion_mass_calculator(mol_mass : float, adduct_mass : float, mol_count : int,
+    def ion_mass_calculator(self, mol_mass : float, adduct_mass : float, mol_count : int,
                             ion_charge : int) :
         """
         Calculates the m/z value of an ion species, given its supposed molecular
