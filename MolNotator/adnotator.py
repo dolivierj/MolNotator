@@ -73,15 +73,15 @@ def adnotator(params : dict, ion_mode : str):
     adduct_table_primary.loc[:,'Group_numeric'] = adduct_table_primary.loc[:,'Group'].replace({'H' : 0, 'Cl': 1, 'Na' : 2, 'K' : 3})
     adduct_table_primary.loc[:,"complexed"] = adduct_table_primary.loc[:,"Adduct_code"].str.split('|').str[-1] != ""
     adduct_table_primary.loc[:,"decomplexed"] = list(pd.Series(adduct_table_primary.index, index = adduct_table_primary.loc[:,"Adduct_code"])[adduct_table_primary.loc[:,"Adduct_code"].str.split('|').str[0:2].str.join('|') + "|"])
-    adduct_table_primary['adduct_id'] = adduct_table_primary.index
+    adduct_table_primary.loc[:,'adduct_id'] = adduct_table_primary.index
     
     adduct_table_secondary.loc[:,'Group_numeric'] = adduct_table_secondary.loc[:,'Group'].replace({'H' : 0, 'Cl': 1, 'Na' : 2, 'K' : 3})
     adduct_table_secondary.loc[:,"complexed"] = adduct_table_secondary.loc[:,"Adduct_code"].str.split('|').str[-1] != ""
     adduct_table_secondary.loc[:,"decomplexed"] = list(pd.Series(adduct_table_secondary.index, index = adduct_table_secondary.loc[:,"Adduct_code"])[adduct_table_secondary.loc[:,"Adduct_code"].str.split('|').str[0:2].str.join('|') + "|"])
-    adduct_table_secondary['adduct_id'] = adduct_table_primary.index
+    adduct_table_secondary.loc[:,'adduct_id'] = adduct_table_secondary.index
     
     adduct_table_merged = pd.concat([adduct_table_primary, adduct_table_secondary], ignore_index=True)
-    adduct_table_merged['adduct_id'] = adduct_table_merged.index
+    adduct_table_merged.loc[:,'adduct_id'] = adduct_table_merged.index
     
     
     # Create output folder

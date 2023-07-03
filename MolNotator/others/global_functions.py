@@ -250,7 +250,6 @@ def get_pairs(mass_error, rt_error, cosine_threshold, adduct_df, node_table, edg
     matched_masses = np.c_[matched_masses, iloc2]
     
     # Remove duplicates (same ID_1, adduct_1, adduct_2, several ID_2s)
-
     arr = matched_masses[:,[0,1,2,3,7]]
     df = pd.DataFrame(arr)
     original_indices = set(df.index)
@@ -274,7 +273,7 @@ def get_pairs(mass_error, rt_error, cosine_threshold, adduct_df, node_table, edg
     matched_masses = np.delete(matched_masses, duplicate_indices, axis=0)
     
     # Remove mirror hits (ions connecting with their duplicates) ----
-    matched_masses_np = matched_masses[matched_masses[:,2] != matched_masses[:,3],:]
+    matched_masses = matched_masses[matched_masses[:,2] != matched_masses[:,3],:]
     
     # Group bool benchmark
     group_bool_np = adduct_data[:,4][matched_masses[:,2].astype(int)] == adduct_data[:,4][matched_masses[:,3].astype(int)]
