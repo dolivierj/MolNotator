@@ -61,117 +61,143 @@ class Species_validator:
         diff = np.abs(mass_array.reshape(-1, 1) - values)
         counter = np.sum(diff <= self.mass_error)
         return counter
+    
+    def ion_mass_calculator(mol_mass : float, adduct_mass : float, mol_count : int,
+                            ion_charge : int) :
+        """
+        Calculates the m/z value of an ion species, given its supposed molecular
+        mass (neutral) and other parameters from the adducts table.
+
+        Parameters
+        ----------
+        mol_mass : float
+            Molecule exact mass.
+        adduct_mass : float
+            Adduct m/z value as displayed in the adduct table.
+        mol_count : int
+            M count (M, 2M, 3M...) as in the ion formula, as displayed in the adduct
+            table.
+        ion_charge : int
+            Ion charge for the considered adduct, from the adduct table.
+
+        Returns
+        -------
+        adduct_mass
+            Adduct mass for the considered molecule given a set adduct.
+        """
+        
+        return round((mol_count*mol_mass + adduct_mass)/abs(ion_charge), 4)
         
     
     #-------------------------------------------------------- Negative m/z ----
 
     def get_mz_M1m1H(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = -1.007825,
                                   mol_count = 1,
                                   ion_charge = -1)
         return mz
     
     def get_mz_M1p1Cl(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 34.968853,
                                   mol_count = 1,
                                   ion_charge = -1)
         return mz
     
     def get_mz_M1m2Hp1Na(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 20.97412,
                                   mol_count = 1,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M1m1HpHCOOH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 44.997655,
                                   mol_count = 1,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M1m2Hp1NapHCOOH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 66.9796,
                                   mol_count = 1,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M1m2Hp1K(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 36.948057999999996,
                                   mol_count = 1,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M2m1H(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = -1.007825,
                                   mol_count = 2,
                                   ion_charge = -1)
         return mz
     
     def get_mz_M2p1Cl(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 34.968853,
                                   mol_count = 2,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M2m2Hp1Na(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 20.97412,
                                   mol_count = 2,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M2m2Hp1NapHCOOH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 66.9796,
                                   mol_count = 2,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M2m2Hp1K(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 36.948057999999996,
                                   mol_count = 2,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M3m1H(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = -1.007825,
                                   mol_count = 3,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M3p1Cl(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 34.968853,
                                   mol_count = 3,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M3m2Hp1Na(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 20.97412,
                                   mol_count = 3,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M3m2Hp1NapHCOOH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 66.9796,
                                   mol_count = 3,
                                   ion_charge = -1)
         return mz
         
     def get_mz_M3m2Hp1K(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 36.948057999999996,
                                   mol_count = 3,
                                   ion_charge = -1)
@@ -182,223 +208,223 @@ class Species_validator:
     #-------------------------------------------------------- Positive m/z ----
     
     def get_mz_M1p1H(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 1.007825,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
         
     def get_mz_M1p1HpCH3CN(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 42.034374,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
         
     def get_mz_M1p1HpCH3OH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 33.034040,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M1p1K(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 38.963708,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M1p1KpCH3CN(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 79.990257,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M1p1KpCH3OH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 70.989923,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M1p1Na(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 22.989770,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M1p1NapCH3CN(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 64.016319,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M1p1NapCH3OH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 55.015985,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M1p1NH4(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 18.034374,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M1p1NH4pCH3CN(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 59.060923,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M1p1NH4pCH3OH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 50.060589,
                                   mol_count = 1,
                                   ion_charge = 1)
         return mz
         
     def get_mz_M2p1H(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 1.007825,
                                   mol_count = 2,
                                   ion_charge = 1)
         return mz
         
     def get_mz_M2p1HpCH3CN(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 42.034374,
                                   mol_count = 2,
                                   ion_charge = 1)
         return mz
         
     def get_mz_M2p1HpCH3OH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 33.034040,
                                   mol_count = 2,
                                   ion_charge = 1)
         return mz
         
     def get_mz_M2p1K(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 38.963708,
                                   mol_count = 2,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M2p1KpCH3CN(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 79.990257,
                                   mol_count = 2,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M2p1KpCH3OH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 70.989923,
                                   mol_count = 2,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M2p1Na(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 22.989770,
                                   mol_count = 2,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M2p1NapCH3CN(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 64.016319,
                                   mol_count = 2,
                                   ion_charge = 1)
         return mz
         
     def get_mz_M2p1NapCH3OH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 55.015985,
                                   mol_count = 2,
                                   ion_charge = 1)
         return mz
         
     def get_mz_M2p1NH4(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 18.034374,
                                   mol_count = 2,
                                   ion_charge = 1)
         return mz
         
     def get_mz_M3p1H(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 1.007825,
                                   mol_count = 3,
                                   ion_charge = 1)
         return mz
         
     def get_mz_M3p1HpCH3CN(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 42.034374,
                                   mol_count = 3,
                                   ion_charge = 1)
         return mz
     def get_mz_M3p1HpCH3OH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 33.034040,
                                   mol_count = 3,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M3p1K(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 38.963708,
                                   mol_count = 3,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M3p1KpCH3CN(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 79.990257,
                                   mol_count = 3,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M3p1KpCH3OH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 70.989923,
                                   mol_count = 3,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M3p1Na(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                           adduct_mass = 22.989770,
                           mol_count = 3,
                           ion_charge = 1)
         return mz
     
     def get_mz_M3p1NapCH3CN(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 64.016319,
                                   mol_count = 3,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M3p1NapCH3OH(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 55.015985,
                                   mol_count = 3,
                                   ion_charge = 1)
         return mz
     
     def get_mz_M3p1NH4(self, neutral):
-        mz = ion_mass_calculator(mol_mass = neutral,
+        mz = self.ion_mass_calculator(mol_mass = neutral,
                                   adduct_mass = 18.034374,
                                   mol_count = 3,
                                   ion_charge = 1)
