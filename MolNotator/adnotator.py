@@ -1,14 +1,7 @@
-# import os
-# import pandas as pd
-# import numpy as np
-# from tqdm import tqdm
-# from MolNotator.others.global_functions import *
-# from MolNotator.utils import rt_slicer, read_mgf_file, cosine_validation
-
-
 import os
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 from MolNotator.others.global_functions import *
 from MolNotator.utils import read_mgf_file, cosine_validation, spectrum_cosine_score
 
@@ -80,41 +73,24 @@ def adnotator(params : dict, ion_mode : str):
     adduct_table_primary.loc[:,'Group_numeric'] = adduct_table_primary.loc[:,'Group'].replace({'H' : 0, 'Cl': 1, 'Na' : 2, 'K' : 3})
     adduct_table_primary.loc[:,"complexed"] = adduct_table_primary.loc[:,"Adduct_code"].str.split('|').str[-1] != ""
     adduct_table_primary.loc[:,"decomplexed"] = list(pd.Series(adduct_table_primary.index, index = adduct_table_primary.loc[:,"Adduct_code"])[adduct_table_primary.loc[:,"Adduct_code"].str.split('|').str[0:2].str.join('|') + "|"])
+    adduct_table_primary['adduct_id'] = adduct_table_primary.index
     
     adduct_table_secondary.loc[:,'Group_numeric'] = adduct_table_secondary.loc[:,'Group'].replace({'H' : 0, 'Cl': 1, 'Na' : 2, 'K' : 3})
     adduct_table_secondary.loc[:,"complexed"] = adduct_table_secondary.loc[:,"Adduct_code"].str.split('|').str[-1] != ""
     adduct_table_secondary.loc[:,"decomplexed"] = list(pd.Series(adduct_table_secondary.index, index = adduct_table_secondary.loc[:,"Adduct_code"])[adduct_table_secondary.loc[:,"Adduct_code"].str.split('|').str[0:2].str.join('|') + "|"])
-    
+    adduct_table_secondary['adduct_id'] = adduct_table_primary.index
     
     adduct_table_merged = pd.concat([adduct_table_primary, adduct_table_secondary], ignore_index=True)
+    adduct_table_merged['adduct_id'] = adduct_table_merged.index
     
     
     # Create output folder
     if not os.path.isdir(out_path_full) :
         os.mkdir(out_path_full)
     
-    # # If adnotator was already used, load previous files, otherwise create new
-    # if os.path.isfile(out_path_full + "cross_sample_annotations.csv"):
-    #     cross_annotations = pd.read_csv(out_path_full + "cross_sample_annotations.csv", index_col = idx_column, dtype = str)
-    #     cross_annotations = cross_annotations.replace({np.nan: None})
-    #     cross_courts = pd.read_csv(out_path_full + "cross_sample_courts.csv", index_col = idx_column)
-    #     cross_courts = cross_courts.replace({np.nan: None})
-    #     cross_houses = pd.read_csv(out_path_full + "cross_sample_houses.csv", index_col = idx_column, dtype = str)
-    #     cross_houses = cross_houses.replace({np.nan: None})
-    #     cross_points = pd.read_csv(out_path_full + "cross_sample_points.csv", index_col = idx_column, dtype = float)
-    #     cross_points = cross_points.replace({np.nan: None})
-    #     cross_rules = pd.read_csv(out_path_full + "cross_sample_rules.csv", index_col = idx_column, dtype = str)
-    #     cross_rules = cross_rules.replace({np.nan: None})
-    #     cross_neutrals = pd.read_csv(out_path_full + "cross_sample_neutrals.csv", index_col = idx_column, dtype = str)
-    #     cross_neutrals = cross_neutrals.replace({np.nan: None})
-    #     ion_ids = get_ion_ids(spectrum_file, params)
-    # else:
-    #     cross_annotations, cross_points, cross_courts, cross_houses, cross_rules, cross_neutrals, ion_ids = cross_sample_tables(spectrum_file, params)
-    
-    
     
     # Start processing sample by sample
-    for x in input_files.index :
+    for x in tqdm(input_files.index) :
         
         sample_base_name = input_files.at[x, "base_name"]
         
@@ -134,36 +110,35 @@ def adnotator(params : dict, ion_mode : str):
         
 
         # Get all possible pairs
-        cohort_table = get_cohort_table(mass_error = mass_error,
-                                        rt_error = rt_error,
-                                        cosine_threshold = cosine_threshold,
-                                        adduct_df = adduct_table_primary,
-                                        node_table = node_table,
-                                        edge_table = edge_table,
-                                        spectrum_list = spectrum_list)
+        pairs_table = get_pairs(mass_error = mass_error,
+                                rt_error = rt_error,
+                                cosine_threshold = cosine_threshold,
+                                adduct_df = adduct_table_primary,
+                                node_table = node_table,
+                                edge_table = edge_table,
+                                spectrum_list = spectrum_list)
         
+        # Get cohorts table
+        cohort_table = pairs_to_cohorts(matched_masses = pairs_table,
+                                        node_table = node_table)
+        
+        # To Dataframe
         cohort_table = cohort_table_to_pd(cohort_table = cohort_table,
                                           node_table = node_table,
                                           adduct_df = adduct_table_primary,
-                                          adduct_col = "Adduct_code")
+                                          adduct_col = "adduct_id")
+
+        # Filter cohorts (merge equivalent cohorts, remove ions without annotations)
+        cohort_table = filter_cohorts(df = cohort_table)
         
-
-
-            
-            
-
-        # Produce the cohort table containing all ion hypotheses in the sample x
-        cohort_table = cohort_tabler(neutral_table, merged_table, node_table)
-
-        # Produce the supercohorts table to merge redundant cohorts in the sample x
-        supercohorts_table, transition_table = supercohorts_tabler(cohort_table)
+        # cohort_table, transition_table = supercohorts_tabler(cohort_table)
 
         # Produce the court table
-        court_table = get_court_table(supercohorts_table)
+        court_table = get_court_table(cohort_table)
 
         # Produce house table
         court_table = house_selection(court_table = court_table,
-                                      supercohorts_table = supercohorts_table,
+                                      supercohorts_table = cohort_table,
                                       node_table = node_table,
                                       transition_table = transition_table,
                                       merged_table = merged_table,
@@ -174,7 +149,7 @@ def adnotator(params : dict, ion_mode : str):
         # Update cross sample tables with the results
         cross_annotations, cross_points, cross_courts, cross_houses, cross_rules, cross_neutrals = cross_sample_report(court_table, cross_annotations, cross_points, cross_courts,
                             cross_houses, cross_rules, cross_neutrals, 
-                            sample_base_name, supercohorts_table, 
+                            sample_base_name, cohort_table, 
                             adduct_table_primary, adduct_table_merged, node_table,
                             ion_mode, duplicate_table, spectrum_list, params)
     

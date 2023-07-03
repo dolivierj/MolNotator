@@ -185,7 +185,7 @@ def matched_masses_to_pd(matched_masses_np):
     matched_masses_pd = pd.DataFrame(matched_masses_np, columns = ["feature_id_1", "feature_id_2", "adduct_1", "adduct_2", "neutral", "cos", "matches", "prod", "species_score", "complex_score", "frag_score", "weighted_score", "iloc_1", "iloc_2"])
     return matched_masses_pd
 
-def get_cohort_table(mass_error, rt_error, cosine_threshold, adduct_df, node_table, edge_table, spectrum_list):
+def get_pairs(mass_error, rt_error, cosine_threshold, adduct_df, node_table, edge_table, spectrum_list):
 
     def hashable(arr):
         return np.ascontiguousarray(arr).view([('', arr.dtype)] * arr.shape[1])    
@@ -243,15 +243,15 @@ def get_cohort_table(mass_error, rt_error, cosine_threshold, adduct_df, node_tab
                 
                 matched_masses.append((ion_1_feature_id, ion_2_feature_id, ion_1, ion_2, mol_mass, score, n_matches, score*n_matches, 0, 0, 0, 0, x))
         
-    matched_masses_np = np.array(matched_masses)
+    matched_masses = np.array(matched_masses)
     
     # Add iloc2
-    iloc2 = node_table.loc[matched_masses_np[:,1], "iloc"].values
-    matched_masses_np = np.c_[matched_masses_np, iloc2]
+    iloc2 = node_table.loc[matched_masses[:,1], "iloc"].values
+    matched_masses = np.c_[matched_masses, iloc2]
     
     # Remove duplicates (same ID_1, adduct_1, adduct_2, several ID_2s)
 
-    arr = matched_masses_np[:,[0,1,2,3,7]]
+    arr = matched_masses[:,[0,1,2,3,7]]
     df = pd.DataFrame(arr)
     original_indices = set(df.index)
     df["index"] = list(original_indices)
@@ -268,34 +268,35 @@ def get_cohort_table(mass_error, rt_error, cosine_threshold, adduct_df, node_tab
     duplicate_indices = list(original_indices - set(df.loc[:,"index"]))
     duplicate_indices.sort()
     
-    duplicate_array = matched_masses_np[duplicate_indices,:]
+    # Get duplicates (unused)
+    # duplicate_array = matched_masses[duplicate_indices,:]
     
-    matched_masses_np = np.delete(matched_masses_np, duplicate_indices, axis=0)
+    matched_masses = np.delete(matched_masses, duplicate_indices, axis=0)
     
     # Remove mirror hits (ions connecting with their duplicates) ----
-    matched_masses_np = matched_masses_np[matched_masses_np[:,2] != matched_masses_np[:,3],:]
+    matched_masses_np = matched_masses[matched_masses[:,2] != matched_masses[:,3],:]
     
     # Group bool benchmark
-    group_bool_np = adduct_data[:,4][matched_masses_np[:,2].astype(int)] == adduct_data[:,4][matched_masses_np[:,3].astype(int)]
+    group_bool_np = adduct_data[:,4][matched_masses[:,2].astype(int)] == adduct_data[:,4][matched_masses[:,3].astype(int)]
 
     # Cos bool benchmark
-    cos_bool_np = matched_masses_np[:,5] < cosine_threshold
+    cos_bool_np = matched_masses[:,5] < cosine_threshold
     
     # Get the filtering bool
     filter_bool_np = cos_bool_np & group_bool_np
     
     # Filter the table
-    matched_masses_np = matched_masses_np[~filter_bool_np]
+    matched_masses = matched_masses[~filter_bool_np]
     
     # Get species scores
     species_validator = Species_validator(mass_error)
 
-    for i in range(len(matched_masses_np)):
-        adduct_code_1 = adduct_df.at[matched_masses_np[i, 2], 'Adduct_code']
-        adduct_code_2 = adduct_df.at[matched_masses_np[i, 3], 'Adduct_code']
-        neutral = matched_masses_np[i, 4]
-        ion_1_feature_id = matched_masses_np[i, 0]
-        ion_2_feature_id = matched_masses_np[i, 1]
+    for i in range(len(matched_masses)):
+        adduct_code_1 = adduct_df.at[matched_masses[i, 2], 'Adduct_code']
+        adduct_code_2 = adduct_df.at[matched_masses[i, 3], 'Adduct_code']
+        neutral = matched_masses[i, 4]
+        ion_1_feature_id = matched_masses[i, 0]
+        ion_2_feature_id = matched_masses[i, 1]
         
         mass_array_1 = spectrum_list.spectrum[node_table.at[ion_1_feature_id, 'spec_id']].mz
         mass_array_2 = spectrum_list.spectrum[node_table.at[ion_2_feature_id, 'spec_id']].mz
@@ -306,58 +307,93 @@ def get_cohort_table(mass_error, rt_error, cosine_threshold, adduct_df, node_tab
         score_2 = species_validator.validate(adduct_code = adduct_code_2,
                                              neutral = neutral,
                                              mass_array = mass_array_2)
-        matched_masses_np[i, 8] = score_1 + score_2
+        matched_masses[i, 8] = score_1 + score_2
     
     # Get complex scores
-    complex_indices = list(compress(range(len(matched_masses_np)),
-                                    adduct_df.loc[matched_masses_np[:, 3], "complexed"])) # table rows in which the ion_2 is a complex form
+    complex_indices = list(compress(range(len(matched_masses)),
+                                    adduct_df.loc[matched_masses[:, 3], "complexed"])) # table rows in which the ion_2 is a complex form
     
-    decomplexed = adduct_df.loc[:,"decomplexed"][matched_masses_np[complex_indices, 3]].tolist() # Adduct ID for the Decomplexed form of ion_2s in complex_indices 
+    decomplexed = adduct_df.loc[:,"decomplexed"][matched_masses[complex_indices, 3]].tolist() # Adduct ID for the Decomplexed form of ion_2s in complex_indices 
     for i, add in zip(complex_indices, decomplexed):
-        feature_id_1 = matched_masses_np[i, 0] 
-        adduct_id_1 = matched_masses_np[i, 2] 
+        feature_id_1 = matched_masses[i, 0] 
+        adduct_id_1 = matched_masses[i, 2] 
         
-        same_feature_1_bool = matched_masses_np[:,0] == feature_id_1
-        same_adduct_1_bool = matched_masses_np[:,2] == adduct_id_1
-        decomplexed_adduct_2_bool = matched_masses_np[:,3] == add
-        results = matched_masses_np[same_feature_1_bool & same_adduct_1_bool & decomplexed_adduct_2_bool]
+        same_feature_1_bool = matched_masses[:,0] == feature_id_1
+        same_adduct_1_bool = matched_masses[:,2] == adduct_id_1
+        decomplexed_adduct_2_bool = matched_masses[:,3] == add
+        results = matched_masses[same_feature_1_bool & same_adduct_1_bool & decomplexed_adduct_2_bool]
         
         if results.size : 
-            matched_masses_np[i, 9] = 1
+            matched_masses[i, 9] = 1
     
     # Get fragnotator scores
-    arr1 = matched_masses_np[:,0:2].astype(int)
+    arr1 = matched_masses[:,0:2].astype(int)
     arr2 = edge_table[edge_table['status'] == 'frag_edge']
     arr2 = np.array(arr2.loc[:,["node_1", "node_2"]]).astype(int)
     pairs = find_common_pairs(arr1, arr2)
-    matched_masses_np[pairs, 10] = 1
+    matched_masses[pairs, 10] = 1
     
     # Weighted points
-    summed_scores = matched_masses_np[:,8:11].sum(axis = 1)
-    complexity_scores = adduct_data[matched_masses_np[:,2].astype(int),3] + adduct_data[matched_masses_np[:,3].astype(int),3]
-    matched_masses_np[:,11] = summed_scores / complexity_scores
+    summed_scores = matched_masses[:,7:11].sum(axis = 1)
+    complexity_scores = adduct_data[matched_masses[:,2].astype(int),3] + adduct_data[matched_masses[:,3].astype(int),3]
+    matched_masses[:,11] = summed_scores / complexity_scores
+    
+    return matched_masses
 
+def pairs_to_cohorts(matched_masses, node_table):
         
     # Conversion to cohorts table
-    cohort_list_np = matched_masses_np[:,[0, 2, 12]]
-    cohort_list_np = np.array(list(set(tuple(i) for i in cohort_list_np)))
-    cohort_list_np = cohort_list_np[np.lexsort((cohort_list_np[:,1], cohort_list_np[:,0]))]
+    cohort_list = matched_masses[:,[0, 2, 12]]
+    cohort_list = np.array(list(set(tuple(i) for i in cohort_list)))
+    cohort_list = cohort_list[np.lexsort((cohort_list[:,1], cohort_list[:,0]))]
     
     # Create a new array with NaN values
-    cohort_table_np = np.full((len(node_table),len(cohort_list_np),), np.nan)
+    cohort_table = np.full((len(node_table),len(cohort_list),), np.nan)
 
-    cohort_table_np[cohort_list_np[:,2].astype(int), range(len(cohort_list_np))] = cohort_list_np[:,1]
+    cohort_table[cohort_list[:,2].astype(int), range(len(cohort_list))] = cohort_list[:,1]
     
     
-    condition_indices = np.where((matched_masses_np[:, None, 0] == cohort_list_np[:, 0]) & 
-                             (matched_masses_np[:, None, 2] == cohort_list_np[:, 1]))
+    condition_indices = np.where((matched_masses[:, None, 0] == cohort_list[:, 0]) & 
+                             (matched_masses[:, None, 2] == cohort_list[:, 1]))
     
-    cohort_table_np[matched_masses_np[condition_indices[0], 13].astype(int), condition_indices[1]] = matched_masses_np[condition_indices[0], 3]
+    cohort_table[matched_masses[condition_indices[0], 13].astype(int), condition_indices[1]] = matched_masses[condition_indices[0], 3]
     
-    return cohort_table_np
+    return cohort_table
     
 
-
+def filter_cohorts(df):
+    cohort_list = []
+    cohort_count = 0
+    columns = df.columns.tolist()
+    
+    while columns:
+        col = columns.pop(0)
+        values = df[col].dropna()
+        if not values.empty:
+            idx = values.index[0]
+            value = values[idx]
+    
+            other_cols = df.loc[idx][df.loc[idx] == value].index.tolist()
+    
+            for other_col in other_cols:
+                for j in df[other_col].dropna().index:
+                    cohort_list.append((j, df.loc[j, other_col], cohort_count))
+                if other_col in columns: # Check if 'other_col' exists in 'columns'
+                    columns.remove(other_col)
+    
+            cohort_count += 1
+    
+    cohort_df = pd.DataFrame(cohort_list, columns=['ion', 'adduct', 'cohort_id']).drop_duplicates()
+    cohort_ids = cohort_df['cohort_id'].unique()
+    
+    cohorts_table = pd.DataFrame(np.nan, index=cohort_df['ion'].unique(),
+                                 columns=range(len(cohort_ids)))
+    
+    for i in cohort_ids:
+        cohort_i = cohort_df[cohort_df['cohort_id'] == i]
+        cohorts_table.loc[cohort_i['ion'], i] = cohort_i['adduct'].values
+    
+    return cohorts_table
 
 
 
