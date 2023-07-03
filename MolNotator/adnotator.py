@@ -1,9 +1,17 @@
+# import os
+# import pandas as pd
+# import numpy as np
+# from tqdm import tqdm
+# from MolNotator.others.global_functions import *
+# from MolNotator.utils import rt_slicer, read_mgf_file, cosine_validation
+
+
 import os
 import pandas as pd
 import numpy as np
-from tqdm import tqdm
 from MolNotator.others.global_functions import *
-from MolNotator.utils import rt_slicer, read_mgf_file, cosine_validation
+from MolNotator.utils import read_mgf_file, cosine_validation, spectrum_cosine_score
+
 
 def adnotator(params : dict, ion_mode : str):
     """
@@ -23,7 +31,9 @@ def adnotator(params : dict, ion_mode : str):
     """
     
     # Load parameters:
-    rt_error= params['an_rt_error']
+    rt_error = params['an_rt_error']
+    mass_error = params['an_mass_error']
+    cosine_threshold = params['an_cos_threshold']
     idx_column = params['index_col']
     
     # If the retention time is in minutes
@@ -38,8 +48,8 @@ def adnotator(params : dict, ion_mode : str):
         in_path_csv= params['neg_out_2']
         out_path_full= params['neg_out_3_1']
         out_path_samples= params['neg_out_3_2']
-        adduct_table_primary= params['an_addtable_primary_neg']
-        adduct_table_secondary= params['an_addtable_secondary_neg']
+        adduct_table_primary_file= params['an_addtable_primary_neg']
+        adduct_table_secondary_file= params['an_addtable_secondary_neg']
     elif ion_mode == "POS":
         in_path_full= params['pos_out_0']
         csv_file= params['pos_csv']
@@ -48,8 +58,8 @@ def adnotator(params : dict, ion_mode : str):
         in_path_csv= params['pos_out_2']
         out_path_full= params['pos_out_3_1']
         out_path_samples= params['pos_out_3_2']
-        adduct_table_primary= params['an_addtable_primary_pos']
-        adduct_table_secondary= params['an_addtable_secondary_pos']
+        adduct_table_primary_file = params['an_addtable_primary_pos']
+        adduct_table_secondary_file = params['an_addtable_secondary_pos']
     else:
         print('Ion mode must be either "NEG" or "POS"')
         return
@@ -63,121 +73,84 @@ def adnotator(params : dict, ion_mode : str):
     input_files['base_name'] = input_files['spectrum_file'].copy().str.replace(f'{ion_mode}_', "")
     input_files['base_name'] = input_files['base_name'].str.replace('.mgf', '', regex = False)
     
-    adduct_table_primary = pd.read_csv("./params/" + adduct_table_primary, sep = "\t")
-    adduct_table_secondary = pd.read_csv("./params/" + adduct_table_secondary, sep = "\t")
+    adduct_table_primary = pd.read_csv("./params/" + adduct_table_primary_file, sep = "\t")
+    adduct_table_secondary = pd.read_csv("./params/" + adduct_table_secondary_file, sep = "\t")
+    
+    # Add additional metadata to the adduct table
+    adduct_table_primary.loc[:,'Group_numeric'] = adduct_table_primary.loc[:,'Group'].replace({'H' : 0, 'Cl': 1, 'Na' : 2, 'K' : 3})
+    adduct_table_primary.loc[:,"complexed"] = adduct_table_primary.loc[:,"Adduct_code"].str.split('|').str[-1] != ""
+    adduct_table_primary.loc[:,"decomplexed"] = list(pd.Series(adduct_table_primary.index, index = adduct_table_primary.loc[:,"Adduct_code"])[adduct_table_primary.loc[:,"Adduct_code"].str.split('|').str[0:2].str.join('|') + "|"])
+    
+    adduct_table_secondary.loc[:,'Group_numeric'] = adduct_table_secondary.loc[:,'Group'].replace({'H' : 0, 'Cl': 1, 'Na' : 2, 'K' : 3})
+    adduct_table_secondary.loc[:,"complexed"] = adduct_table_secondary.loc[:,"Adduct_code"].str.split('|').str[-1] != ""
+    adduct_table_secondary.loc[:,"decomplexed"] = list(pd.Series(adduct_table_secondary.index, index = adduct_table_secondary.loc[:,"Adduct_code"])[adduct_table_secondary.loc[:,"Adduct_code"].str.split('|').str[0:2].str.join('|') + "|"])
+    
     
     adduct_table_merged = pd.concat([adduct_table_primary, adduct_table_secondary], ignore_index=True)
+    
     
     # Create output folder
     if not os.path.isdir(out_path_full) :
         os.mkdir(out_path_full)
     
-    # If adnotator was already used, load previous files, otherwise create new
-    if os.path.isfile(out_path_full + "cross_sample_annotations.csv"):
-        cross_annotations = pd.read_csv(out_path_full + "cross_sample_annotations.csv", index_col = idx_column, dtype = str)
-        cross_annotations = cross_annotations.replace({np.nan: None})
-        cross_courts = pd.read_csv(out_path_full + "cross_sample_courts.csv", index_col = idx_column)
-        cross_courts = cross_courts.replace({np.nan: None})
-        cross_houses = pd.read_csv(out_path_full + "cross_sample_houses.csv", index_col = idx_column, dtype = str)
-        cross_houses = cross_houses.replace({np.nan: None})
-        cross_points = pd.read_csv(out_path_full + "cross_sample_points.csv", index_col = idx_column, dtype = float)
-        cross_points = cross_points.replace({np.nan: None})
-        cross_rules = pd.read_csv(out_path_full + "cross_sample_rules.csv", index_col = idx_column, dtype = str)
-        cross_rules = cross_rules.replace({np.nan: None})
-        cross_neutrals = pd.read_csv(out_path_full + "cross_sample_neutrals.csv", index_col = idx_column, dtype = str)
-        cross_neutrals = cross_neutrals.replace({np.nan: None})
-        ion_ids = get_ion_ids(spectrum_file, params)
-    else:
-        cross_annotations, cross_points, cross_courts, cross_houses, cross_rules, cross_neutrals, ion_ids = cross_sample_tables(spectrum_file, params)
+    # # If adnotator was already used, load previous files, otherwise create new
+    # if os.path.isfile(out_path_full + "cross_sample_annotations.csv"):
+    #     cross_annotations = pd.read_csv(out_path_full + "cross_sample_annotations.csv", index_col = idx_column, dtype = str)
+    #     cross_annotations = cross_annotations.replace({np.nan: None})
+    #     cross_courts = pd.read_csv(out_path_full + "cross_sample_courts.csv", index_col = idx_column)
+    #     cross_courts = cross_courts.replace({np.nan: None})
+    #     cross_houses = pd.read_csv(out_path_full + "cross_sample_houses.csv", index_col = idx_column, dtype = str)
+    #     cross_houses = cross_houses.replace({np.nan: None})
+    #     cross_points = pd.read_csv(out_path_full + "cross_sample_points.csv", index_col = idx_column, dtype = float)
+    #     cross_points = cross_points.replace({np.nan: None})
+    #     cross_rules = pd.read_csv(out_path_full + "cross_sample_rules.csv", index_col = idx_column, dtype = str)
+    #     cross_rules = cross_rules.replace({np.nan: None})
+    #     cross_neutrals = pd.read_csv(out_path_full + "cross_sample_neutrals.csv", index_col = idx_column, dtype = str)
+    #     cross_neutrals = cross_neutrals.replace({np.nan: None})
+    #     ion_ids = get_ion_ids(spectrum_file, params)
+    # else:
+    #     cross_annotations, cross_points, cross_courts, cross_houses, cross_rules, cross_neutrals, ion_ids = cross_sample_tables(spectrum_file, params)
+    
+    
     
     # Start processing sample by sample
     for x in input_files.index :
-        sample_base_name = input_files.loc[x, "base_name"]
-        if sample_base_name in cross_annotations.columns : continue
         
-        file_basename = input_files.at[x, 'base_name']
-        print("Processing " + file_basename)
+        sample_base_name = input_files.at[x, "base_name"]
         
         # Load files for the processed sample
-        edge_table = pd.read_csv(f"{in_path_csv}{ion_mode}_{file_basename}_edges.csv", 
+        edge_table = pd.read_csv(f"{in_path_csv}{ion_mode}_{sample_base_name}_edges.csv", 
                                  index_col = 'Index')
-        node_table = pd.read_csv(f"{in_path_csv}{ion_mode}_{file_basename}_nodes.csv", 
+        node_table = pd.read_csv(f"{in_path_csv}{ion_mode}_{sample_base_name}_nodes.csv", 
                                 index_col = params['index_col'])
-        subspectrum_file = in_path_spec + input_files.loc[x, "spectrum_file"]
+        subspectrum_file = f'{in_path_spec}{input_files.at[x, "spectrum_file"]}'
+        
+        
         spectrum_list = read_mgf_file(file_path = subspectrum_file)
         
-        # Create dataframes to store results
-        duplicate_table = pd.DataFrame() # Stores duplicate spectra
-        merged_table = pd.DataFrame() # Store final results
+        # Filter out multi-charge ions
+        idx = node_table.index[abs(node_table[params['charge_field']]) <= 1]
+        node_table = node_table.loc[idx]
         
-        # Process each spectrum for the sample
-        for i in tqdm(node_table.index) :
-            
-            # Load data for first ion to be analysed
-            if abs(int(node_table.loc[i, params['charge_field']])) > 1 : continue
-            ion1_rt = node_table.loc[i, params['rt_field']]
-            ion1_mz = node_table.loc[i, params['mz_field']]
-            ion1_spec_id = node_table.loc[i, 'spec_id']
-    
-            # Slice the DF to keep only ions coeluting with current ion
-            coelution_table = rt_slicer(ion1_rt, rt_error, i, node_table,
-                                        params['rt_field'])
-            
-            # Filter the table to remove multicharged ions
-            coelution_table = coelution_table[abs(coelution_table[params['charge_field']]) <= 1]
-        
-            # Produce neutral table (all neutrals for the considered ion):
-            neutral_table = neutral_tabler(ion1_mz, adduct_table_primary)
-        
-            # Produce ion hypotheses table (all adducts for all neutrals)
-            ion_hypotheses_table = ion_hypotheses_tabler(neutral_table)
-        
-            # Award points for each combination of hypotheses based on the
-            # existance of the Ion2 in the coelution table.
-            ion_hypotheses_table = point_counter(ion_hypotheses_table,
-                                                 coelution_table, params)
-            
-            # Cosine similarity are integrated to the scores of the hypotheses
-            ion_hypotheses_table, tmp_duplicates = cosine_validation(ion_1_idx = i,
-                                                                     node_table = node_table, 
-                                                                     spectrum_list = spectrum_list,
-                                                                     ion_hypotheses_table = ion_hypotheses_table,
-                                                                     adduct_table_primary = adduct_table_primary,
-                                                                     params = params)
-            
-            # Add duplicates found previously to the duplicate table
-            duplicate_table = pd.concat([duplicate_table, tmp_duplicates], ignore_index=True)
-            
-            # Species rules points : award points for annotations that can be confirmed
-            ion_hypotheses_table = species_rules(ion_1_spec_id = ion1_spec_id,
-                                                 ion_hypotheses_table = ion_hypotheses_table,
-                                                 adduct_table_primary = adduct_table_primary,
-                                                 node_table = node_table,
-                                                 spectrum_list = spectrum_list,
-                                                 params = params,
-                                                 ion_mode = ion_mode)
-    
-            # Award points for solvent complex confirmation 
-            ion_hypotheses_table = complex_points(neutral_table, ion_hypotheses_table)
-            
-            # Add points if precursor-fragment connexion exists
-            ion_hypotheses_table = fragnotator_points(i, ion_hypotheses_table,
-                                                      edge_table, node_table.loc[i, 'status'])
-    
-            # Get the adduct code for each ionisation hypothesis
-            ion_hypotheses_table = get_adduct_code(ion_hypotheses_table, neutral_table)
-            
-            # Add final score (weighted points)
-            ion_hypotheses_table = weighted_points(ion_hypotheses_table, adduct_table_primary)
-        
-            # Report all hypotheses for in current ion in a merged adducts table
-            merged_table_local = merged_adducts_table(ion_hypotheses_table, i)
 
-            # Add the local results to the global merged table
-            if len(merged_table_local.index) == 0 : continue
+        # Get all possible pairs
+        cohort_table = get_cohort_table(mass_error = mass_error,
+                                        rt_error = rt_error,
+                                        cosine_threshold = cosine_threshold,
+                                        adduct_df = adduct_table_primary,
+                                        node_table = node_table,
+                                        edge_table = edge_table,
+                                        spectrum_list = spectrum_list)
         
-            merged_table = pd.concat([merged_table, merged_table_local], ignore_index=True)
-            merged_table.reset_index(inplace = True, drop = True)
+        cohort_table = cohort_table_to_pd(cohort_table = cohort_table,
+                                          node_table = node_table,
+                                          adduct_df = adduct_table_primary,
+                                          adduct_col = "Adduct_code")
+        
+
+
+            
+            
 
         # Produce the cohort table containing all ion hypotheses in the sample x
         cohort_table = cohort_tabler(neutral_table, merged_table, node_table)

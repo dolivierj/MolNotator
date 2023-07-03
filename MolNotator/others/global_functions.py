@@ -2,20 +2,22 @@
 import os
 import sys
 import pandas as pd
-from pandas.core.common import flatten
-from matchms.importing import load_from_mgf
-from matchms.similarity import ModifiedCosine
-from matchms.filtering import default_filters
-from MolNotator.others.species_validators import *
-from tqdm import tqdm
 import numpy as np
-from MolNotator.utils import spectrum_cosine_score
+from pandas.core.common import flatten
+# from matchms.importing import load_from_mgf
+# from matchms.similarity import ModifiedCosine
+# from matchms.filtering import default_filters
+# from MolNotator.others.species_validators import *
+from tqdm import tqdm
+from MolNotator.utils import read_mgf_file, spectrum_cosine_score
+from itertools import compress
+from MolNotator.others.species_validators import Species_validator
 
 # Global functions
 
-def Spectrum_processing(s):
-    s = default_filters(s)
-    return s
+# def Spectrum_processing(s):
+#     s = default_filters(s)
+#     return s
 
 # Refresh edge table nodes with new node IDs
 def refresh_edge_table(node_table, edge_table, old_id):
@@ -170,78 +172,268 @@ def neutral_mass_calculator(ion_mz : float, adduct_mass : float,
     return round(((ion_mz*abs(ion_charge)) - adduct_mass)/mol_count, 4)
 
 
-def get_ion_ids(spectrum_file : str, params : dict):
-    """
-    Produce a list containing the unique ion identifiers in the spectrum
-    file
+#----------------------------------------------------- Auxiliary Adnotator ----
 
-    Parameters
-    ----------
-    spectrum_file : str
-        Full file name for the spectrum file.
-    params : dict
-        Dictionary containing the global parameters for the process.
+def cohort_table_to_pd(cohort_table, node_table, adduct_df, adduct_col : str = "Adduct_code"):
+    cohort_table_pd = pd.DataFrame(cohort_table)
+    cohort_table_pd.index = node_table.index
+    replacement_dict = adduct_df[adduct_col].to_dict()
+    cohort_table_pd.replace(replacement_dict, inplace = True)
+    return cohort_table_pd
 
-    Returns
-    -------
-    ion_ids : list
-        List containing the unique identifiers for each ion.
+def matched_masses_to_pd(matched_masses_np):
+    matched_masses_pd = pd.DataFrame(matched_masses_np, columns = ["feature_id_1", "feature_id_2", "adduct_1", "adduct_2", "neutral", "cos", "matches", "prod", "species_score", "complex_score", "frag_score", "weighted_score", "iloc_1", "iloc_2"])
+    return matched_masses_pd
 
-    """
-    # Load the spectrum file
-    spectrum_file = list(load_from_mgf(spectrum_file))
+def get_cohort_table(mass_error, rt_error, cosine_threshold, adduct_df, node_table, edge_table, spectrum_list):
 
-    # Retrieve the ion IDs
-    ion_ids = []
-    for spectrum in spectrum_file:
-        ion_ids.append(int(spectrum.get(params['index_col'])))
+    def hashable(arr):
+        return np.ascontiguousarray(arr).view([('', arr.dtype)] * arr.shape[1])    
 
-    return ion_ids
+    def find_common_pairs(arr1, arr2):
+        hashed_arr1 = hashable(arr1)
+        hashed_arr2 = hashable(arr2)
+        
+        indices = []
+        for i, v in enumerate(hashed_arr1):
+            if v in hashed_arr2:
+                indices.append(i)
+        return indices
 
-def cross_sample_tables(spectrum_file : str, params : dict):
-    """
-    Create dataframes to report results using the complete original MGF file.
-    Each dataframe will contain data for ions (indexes) for each given sample 
-    (columns).
 
-    Parameters
-    ----------
-    spectrum_file : str
-        Full file name for the spectrum file.
-    params : dict
-        Dictionary containing the global parameters for the process.
+    # Get iloc to retrieve data matrix -> dataframe -> matrix
+    node_table['iloc'] = list(range(len(node_table)))
+    node_table.loc[:,"feature_id"] = node_table.index
+    node_data = node_table[["feature_id", "spec_id", "pepmass", "rtinseconds", "charge"]].to_numpy(float)
+    adduct_data = adduct_df[['Charge', 'Adduct_mass', 'Mol_multiplier', 'Complexity', 'Group_numeric']].to_numpy(float)
+    
+    node_table.set_index('feature_id', inplace = True, drop = True)
+    
+    matched_masses = list() #x = np.array(range(len(node_table)))[node_table.index == 17806][0]
+    for x in range(len(node_table.index)):
+    
+        current_ion = node_data[x]
+        coeluted_ions = node_data[(np.abs(node_data[:, 3] - current_ion[3]) <= rt_error) & (node_data[:,0] != current_ion[0])]
+        
+    
+        possible_mol_masses = np.array([neutral_mass_calculator(current_ion[2], row[1],
+                                                             row[2], row[0])
+                                     for row in adduct_data])
+        
+        
+        # calculate all possible ion m/z for these hypothetical molecules and find matches among coeluted ions
+        for i, mol_mass in enumerate(possible_mol_masses): 
+            possible_ion_mz = np.array([ion_mass_calculator(mol_mass, row[1], row[2], row[0]) 
+                               for row in adduct_data])
+            matched_ions = np.abs(coeluted_ions[:, 2].reshape(-1, 1) - possible_ion_mz) <= mass_error
+            
+            rows, cols = np.where(matched_ions)
+            for row, col in zip(rows, cols):
+                
+                ion_1_feature_id = int(current_ion[0])
+                ion_2_feature_id = int(coeluted_ions[row, 0])
+                ion_1 = i
+                ion_2 = col
+                
+                score, n_matches = spectrum_cosine_score(spectrum1 = spectrum_list.spectrum[node_table.at[ion_1_feature_id, 'spec_id']],
+                                                          spectrum2 = spectrum_list.spectrum[node_table.at[ion_2_feature_id, 'spec_id']],
+                                                          tolerance = mass_error)
+                
+    
+                
+                matched_masses.append((ion_1_feature_id, ion_2_feature_id, ion_1, ion_2, mol_mass, score, n_matches, score*n_matches, 0, 0, 0, 0, x))
+        
+    matched_masses_np = np.array(matched_masses)
+    
+    # Add iloc2
+    iloc2 = node_table.loc[matched_masses_np[:,1], "iloc"].values
+    matched_masses_np = np.c_[matched_masses_np, iloc2]
+    
+    # Remove duplicates (same ID_1, adduct_1, adduct_2, several ID_2s)
 
-    Returns
-    -------
-    cross_annotations : pandas.DataFrame
-        Dataframe to be filled with the annotations for each ion in each sample.
-    cross_points : pandas.DataFrame
-        Dataframe to be filled with the points for each annotation for each ion
-        in each sample.
-    cross_courts : pandas.DataFrame
-        Dataframe to be filled with the court number for each ion in each sample.
-    cross_houses : pandas.DataFrame
-        Dataframe to be filled with the house number for each ion in each sample.
-    cross_rules : pandas.DataFrame
-        Dataframe to be filled with the rule points for each ion in each sample.
-    cross_neutrals : pandas.DataFrame
-        Dataframe to be filled with the neutral mass for each ion in each sample.
-    ion_ids : list
-        Series containing the unique identifiers for each ion
+    arr = matched_masses_np[:,[0,1,2,3,7]]
+    df = pd.DataFrame(arr)
+    original_indices = set(df.index)
+    df["index"] = list(original_indices)
+    
+    # Group by columns 0, 2, and 3, and sort within each group by column 4
+    df = df.sort_values(by=[0, 2, 3, 4])
+    
+    # Group by the same columns again and discard the last row of each group (i.e., the one with the lowest score)
+    df = df.groupby([0, 2, 3]).apply(lambda x: x.iloc[-1:])
+    
+    # Reset the index
+    df = df.reset_index(drop=True)
+    
+    duplicate_indices = list(original_indices - set(df.loc[:,"index"]))
+    duplicate_indices.sort()
+    
+    duplicate_array = matched_masses_np[duplicate_indices,:]
+    
+    matched_masses_np = np.delete(matched_masses_np, duplicate_indices, axis=0)
+    
+    # Remove mirror hits (ions connecting with their duplicates) ----
+    matched_masses_np = matched_masses_np[matched_masses_np[:,2] != matched_masses_np[:,3],:]
+    
+    # Group bool benchmark
+    group_bool_np = adduct_data[:,4][matched_masses_np[:,2].astype(int)] == adduct_data[:,4][matched_masses_np[:,3].astype(int)]
 
-    """
-    # Get ion IDs 
-    ion_ids = get_ion_ids(spectrum_file, params)
+    # Cos bool benchmark
+    cos_bool_np = matched_masses_np[:,5] < cosine_threshold
+    
+    # Get the filtering bool
+    filter_bool_np = cos_bool_np & group_bool_np
+    
+    # Filter the table
+    matched_masses_np = matched_masses_np[~filter_bool_np]
+    
+    # Get species scores
+    species_validator = Species_validator(mass_error)
 
-    # Initialise the result tables
-    cross_annotations = pd.DataFrame(index = ion_ids, dtype = str)
-    cross_points = pd.DataFrame(index = ion_ids, dtype = float)
-    cross_courts = pd.DataFrame(index = ion_ids, dtype = int)
-    cross_houses = pd.DataFrame(index = ion_ids, dtype = int)
-    cross_rules = pd.DataFrame(index = ion_ids, dtype = int)
-    cross_neutrals = pd.DataFrame(index = ion_ids, dtype = int)
+    for i in range(len(matched_masses_np)):
+        adduct_code_1 = adduct_df.at[matched_masses_np[i, 2], 'Adduct_code']
+        adduct_code_2 = adduct_df.at[matched_masses_np[i, 3], 'Adduct_code']
+        neutral = matched_masses_np[i, 4]
+        ion_1_feature_id = matched_masses_np[i, 0]
+        ion_2_feature_id = matched_masses_np[i, 1]
+        
+        mass_array_1 = spectrum_list.spectrum[node_table.at[ion_1_feature_id, 'spec_id']].mz
+        mass_array_2 = spectrum_list.spectrum[node_table.at[ion_2_feature_id, 'spec_id']].mz
+        
+        score_1 = species_validator.validate(adduct_code = adduct_code_1,
+                                             neutral = neutral,
+                                             mass_array = mass_array_1)
+        score_2 = species_validator.validate(adduct_code = adduct_code_2,
+                                             neutral = neutral,
+                                             mass_array = mass_array_2)
+        matched_masses_np[i, 8] = score_1 + score_2
+    
+    # Get complex scores
+    complex_indices = list(compress(range(len(matched_masses_np)),
+                                    adduct_df.loc[matched_masses_np[:, 3], "complexed"])) # table rows in which the ion_2 is a complex form
+    
+    decomplexed = adduct_df.loc[:,"decomplexed"][matched_masses_np[complex_indices, 3]].tolist() # Adduct ID for the Decomplexed form of ion_2s in complex_indices 
+    for i, add in zip(complex_indices, decomplexed):
+        feature_id_1 = matched_masses_np[i, 0] 
+        adduct_id_1 = matched_masses_np[i, 2] 
+        
+        same_feature_1_bool = matched_masses_np[:,0] == feature_id_1
+        same_adduct_1_bool = matched_masses_np[:,2] == adduct_id_1
+        decomplexed_adduct_2_bool = matched_masses_np[:,3] == add
+        results = matched_masses_np[same_feature_1_bool & same_adduct_1_bool & decomplexed_adduct_2_bool]
+        
+        if results.size : 
+            matched_masses_np[i, 9] = 1
+    
+    # Get fragnotator scores
+    arr1 = matched_masses_np[:,0:2].astype(int)
+    arr2 = edge_table[edge_table['status'] == 'frag_edge']
+    arr2 = np.array(arr2.loc[:,["node_1", "node_2"]]).astype(int)
+    pairs = find_common_pairs(arr1, arr2)
+    matched_masses_np[pairs, 10] = 1
+    
+    # Weighted points
+    summed_scores = matched_masses_np[:,8:11].sum(axis = 1)
+    complexity_scores = adduct_data[matched_masses_np[:,2].astype(int),3] + adduct_data[matched_masses_np[:,3].astype(int),3]
+    matched_masses_np[:,11] = summed_scores / complexity_scores
 
-    return cross_annotations, cross_points, cross_courts, cross_houses, cross_rules, cross_neutrals, ion_ids
+        
+    # Conversion to cohorts table
+    cohort_list_np = matched_masses_np[:,[0, 2, 12]]
+    cohort_list_np = np.array(list(set(tuple(i) for i in cohort_list_np)))
+    cohort_list_np = cohort_list_np[np.lexsort((cohort_list_np[:,1], cohort_list_np[:,0]))]
+    
+    # Create a new array with NaN values
+    cohort_table_np = np.full((len(node_table),len(cohort_list_np),), np.nan)
+
+    cohort_table_np[cohort_list_np[:,2].astype(int), range(len(cohort_list_np))] = cohort_list_np[:,1]
+    
+    
+    condition_indices = np.where((matched_masses_np[:, None, 0] == cohort_list_np[:, 0]) & 
+                             (matched_masses_np[:, None, 2] == cohort_list_np[:, 1]))
+    
+    cohort_table_np[matched_masses_np[condition_indices[0], 13].astype(int), condition_indices[1]] = matched_masses_np[condition_indices[0], 3]
+    
+    return cohort_table_np
+    
+
+
+
+
+
+
+# def get_ion_ids(spectrum_file : str, params : dict):
+#     """
+#     Produce a list containing the unique ion identifiers in the spectrum
+#     file
+
+#     Parameters
+#     ----------
+#     spectrum_file : str
+#         Full file name for the spectrum file.
+#     params : dict
+#         Dictionary containing the global parameters for the process.
+
+#     Returns
+#     -------
+#     ion_ids : list
+#         List containing the unique identifiers for each ion.
+
+#     """
+#     # Load the spectrum file
+#     spectrum_file = list(load_from_mgf(spectrum_file))
+
+#     # Retrieve the ion IDs
+#     ion_ids = []
+#     for spectrum in spectrum_file:
+#         ion_ids.append(int(spectrum.get(params['index_col'])))
+
+#     return ion_ids
+
+# def cross_sample_tables(spectrum_file : str, params : dict):
+#     """
+#     Create dataframes to report results using the complete original MGF file.
+#     Each dataframe will contain data for ions (indexes) for each given sample 
+#     (columns).
+
+#     Parameters
+#     ----------
+#     spectrum_file : str
+#         Full file name for the spectrum file.
+#     params : dict
+#         Dictionary containing the global parameters for the process.
+
+#     Returns
+#     -------
+#     cross_annotations : pandas.DataFrame
+#         Dataframe to be filled with the annotations for each ion in each sample.
+#     cross_points : pandas.DataFrame
+#         Dataframe to be filled with the points for each annotation for each ion
+#         in each sample.
+#     cross_courts : pandas.DataFrame
+#         Dataframe to be filled with the court number for each ion in each sample.
+#     cross_houses : pandas.DataFrame
+#         Dataframe to be filled with the house number for each ion in each sample.
+#     cross_rules : pandas.DataFrame
+#         Dataframe to be filled with the rule points for each ion in each sample.
+#     cross_neutrals : pandas.DataFrame
+#         Dataframe to be filled with the neutral mass for each ion in each sample.
+#     ion_ids : list
+#         Series containing the unique identifiers for each ion
+
+#     """
+#     # Get ion IDs 
+#     ion_ids = get_ion_ids(spectrum_file, params)
+
+#     # Initialise the result tables
+#     cross_annotations = pd.DataFrame(index = ion_ids, dtype = str)
+#     cross_points = pd.DataFrame(index = ion_ids, dtype = float)
+#     cross_courts = pd.DataFrame(index = ion_ids, dtype = int)
+#     cross_houses = pd.DataFrame(index = ion_ids, dtype = int)
+#     cross_rules = pd.DataFrame(index = ion_ids, dtype = int)
+#     cross_neutrals = pd.DataFrame(index = ion_ids, dtype = int)
+
+#     return cross_annotations, cross_points, cross_courts, cross_houses, cross_rules, cross_neutrals, ion_ids
 
 
 def neutral_tabler(ion_mz : float, adduct_table_primary):
@@ -353,67 +545,6 @@ def point_counter(ion_hypotheses_table, coelution_table, params : dict):
     return ion_hypotheses_table
 
 
-
-def species_rules(ion_1_spec_id : int, ion_hypotheses_table, adduct_table_primary, node_table,
-                  spectrum_list : list, params : dict, ion_mode : str):
-    """
-    Awards points to hypotheses for which the annotations for ions 1 or 2 
-    could be validated by the ion species rules (checks if the annotation can 
-    be confirmed).
-
-    Parameters
-    ----------
-    ion_1_spec_id : int
-        ion 1 relative position in the sample's spectrum file.
-    ion_hypotheses_table : pandas.DataFrame
-        Ion hypotheses table obtained from other functions.
-    adduct_table_primary : pandas.DataFrame
-        Primary adduct table from the parameter folder.
-    node_table : pandas.DataFrame
-        Node table with the ion metadata.
-    spectrum_list : list
-        List of matchms.Spectrum objects.
-    params : dict
-        Dictionary containing the global parameters for the process.
-    ion_mode : str
-        POS or NEG, to be chosen for the species rules.
-
-    Returns
-    -------
-    ion_hypotheses_table : pandas.DataFrame
-        Ion hypotheses table with species rule points.
-
-    """
-
-    # Load parameters and prepare the rule_points column
-    prec_mass_error = params['an_prec_mass_error']
-    ion_hypotheses_table['rule_points'] = [0.0]*len(ion_hypotheses_table)
-
-    # Check each hypothesis
-    for hypothesis in ion_hypotheses_table.index:
-        
-        # Get the ion 1 adduct
-        ion_1_adduct = ion_hypotheses_table.loc[hypothesis, "Ion1_adduct"]
-        ion_1_adduct = adduct_table_primary.loc[ion_1_adduct, "Adduct_code"]
-
-        # Select the species rule based on the adduct and the ion mode
-        Species_rule = Validator_choice(ion_1_adduct, ion_mode)
-
-        # Increment the score to the ion hypotheses table
-        ion_hypotheses_table.loc[hypothesis, "rule_points"] += Species_rule(prec_mass_error,
-                                                                            ion_1_spec_id,
-                                                                            spectrum_list)
-        
-        # Do the same for ion 2 
-        ion_2_adduct = ion_hypotheses_table.loc[hypothesis, "Ion2_adduct"]
-        ion_2_adduct = adduct_table_primary.loc[ion_2_adduct, "Adduct_code"]
-        ion_2_spec_id = ion_hypotheses_table.loc[hypothesis, "hit_indexes"]
-        ion_2_spec_id = node_table.loc[ion_2_spec_id, "spec_id"]
-        Species_rule = Validator_choice(ion_2_adduct, ion_mode)
-        ion_hypotheses_table.loc[hypothesis, "rule_points"] += Species_rule(prec_mass_error,
-                                                                            ion_2_spec_id,
-                                                                            spectrum_list)
-    return ion_hypotheses_table
 
 def complex_points(neutral_table, ion_hypotheses_table):
     """For a hypothesis bearing an ion 2 with a complex form (neutral complexes,
@@ -1427,169 +1558,169 @@ def house_selection(court_table, supercohorts_table, node_table, transition_tabl
     court_table["house_points"] = house_points
     return court_table
 
-def cross_sample_report(court_table, cross_annotations, cross_points, cross_courts,
-                        cross_houses, cross_rules, cross_neutrals,
-                        sample_base_name : str, supercohorts_table,
-                        adduct_table_primary, adduct_table_merged, node_table,
-                        ion_mode, duplicate_df, spectrum_list, params):
-    """Reports the data for the sample being processed into the cross tables 
-    before exporting them as csv files.
-    """
+# def cross_sample_report(court_table, cross_annotations, cross_points, cross_courts,
+#                         cross_houses, cross_rules, cross_neutrals,
+#                         sample_base_name : str, supercohorts_table,
+#                         adduct_table_primary, adduct_table_merged, node_table,
+#                         ion_mode, duplicate_df, spectrum_list, params):
+#     """Reports the data for the sample being processed into the cross tables 
+#     before exporting them as csv files.
+#     """
     
-    # Add sample to tables
-    cross_annotations[sample_base_name] = [None]*len(cross_annotations)
-    cross_points[sample_base_name] = [None]*len(cross_points)
-    cross_courts[sample_base_name] = [None]*len(cross_courts)
-    cross_houses[sample_base_name] = [None]*len(cross_courts)
-    cross_rules[sample_base_name] = [None]*len(cross_courts)
-    cross_neutrals[sample_base_name] = [None]*len(cross_courts)
+#     # Add sample to tables
+#     cross_annotations[sample_base_name] = [None]*len(cross_annotations)
+#     cross_points[sample_base_name] = [None]*len(cross_points)
+#     cross_courts[sample_base_name] = [None]*len(cross_courts)
+#     cross_houses[sample_base_name] = [None]*len(cross_courts)
+#     cross_rules[sample_base_name] = [None]*len(cross_courts)
+#     cross_neutrals[sample_base_name] = [None]*len(cross_courts)
  
-    print("Reporting results...")
-    for i in tqdm(court_table.index):
+#     print("Reporting results...")
+#     for i in tqdm(court_table.index):
         
-        # For each court (i), process each house it contains
-        for house in range(len(court_table.loc[i, "selected_houses"])):
+#         # For each court (i), process each house it contains
+#         for house in range(len(court_table.loc[i, "selected_houses"])):
             
-            # Get each cohort in the house
-            cohorts = court_table.loc[i, "selected_houses"][house]
-            for cohort in cohorts:
+#             # Get each cohort in the house
+#             cohorts = court_table.loc[i, "selected_houses"][house]
+#             for cohort in cohorts:
                 
-                # Get each ion annotation from the cohort
-                annotations = supercohorts_table[cohort].dropna()
-                for ion in annotations.index:
+#                 # Get each ion annotation from the cohort
+#                 annotations = supercohorts_table[cohort].dropna()
+#                 for ion in annotations.index:
                     
-                    # For each ion, get spec_id
-                    spec_id = node_table.loc[ion, 'spec_id']
+#                     # For each ion, get spec_id
+#                     spec_id = node_table.loc[ion, 'spec_id']
                     
-                    # Get its neutral mass
-                    neutral_mass = adduct_table_merged["Adduct_code"] == annotations[ion]
-                    neutral_mass = neutral_mass.index[neutral_mass][0]
-                    neutral_mass = neutral_mass_calculator(node_table.loc[ion, params['mz_field']],
-                                                           adduct_table_merged.loc[neutral_mass, "Adduct_mass"],
-                                                           adduct_table_merged.loc[neutral_mass, "Mol_multiplier"],
-                                                           adduct_table_merged.loc[neutral_mass, "Charge"])
-                    Species_rule = Validator_choice(annotations[ion], ion_mode)
-                    rule_validation = Species_rule(params['an_prec_mass_error'], spec_id, spectrum_list)
-                    #ion_id = int(node_table.loc[ion, params['index_col']])
-                    if cross_annotations.loc[ion, sample_base_name] == None :
-                        cross_annotations.loc[ion, sample_base_name] = annotations[ion]
-                        cross_houses.loc[ion, sample_base_name] = str(house)
-                        cross_rules.loc[ion, sample_base_name] = str(rule_validation)
-                        cross_neutrals.loc[ion, sample_base_name] = str(neutral_mass)
-                    else:
-                        cross_annotations.loc[ion, sample_base_name] += "&" + annotations[ion]
-                        cross_houses.loc[ion, sample_base_name] += "&" + str(house)
-                        cross_rules.loc[ion, sample_base_name] += "&" + str(rule_validation)
-                        cross_neutrals.loc[ion, sample_base_name] += "&" + str(neutral_mass)
-                    cross_points.loc[ion, sample_base_name] = court_table.loc[i, "house_points"]
-                    cross_courts.loc[ion, sample_base_name] = i
+#                     # Get its neutral mass
+#                     neutral_mass = adduct_table_merged["Adduct_code"] == annotations[ion]
+#                     neutral_mass = neutral_mass.index[neutral_mass][0]
+#                     neutral_mass = neutral_mass_calculator(node_table.loc[ion, params['mz_field']],
+#                                                            adduct_table_merged.loc[neutral_mass, "Adduct_mass"],
+#                                                            adduct_table_merged.loc[neutral_mass, "Mol_multiplier"],
+#                                                            adduct_table_merged.loc[neutral_mass, "Charge"])
+#                     Species_rule = Validator_choice(annotations[ion], ion_mode)
+#                     rule_validation = Species_rule(params['an_prec_mass_error'], spec_id, spectrum_list)
+#                     #ion_id = int(node_table.loc[ion, params['index_col']])
+#                     if cross_annotations.loc[ion, sample_base_name] == None :
+#                         cross_annotations.loc[ion, sample_base_name] = annotations[ion]
+#                         cross_houses.loc[ion, sample_base_name] = str(house)
+#                         cross_rules.loc[ion, sample_base_name] = str(rule_validation)
+#                         cross_neutrals.loc[ion, sample_base_name] = str(neutral_mass)
+#                     else:
+#                         cross_annotations.loc[ion, sample_base_name] += "&" + annotations[ion]
+#                         cross_houses.loc[ion, sample_base_name] += "&" + str(house)
+#                         cross_rules.loc[ion, sample_base_name] += "&" + str(rule_validation)
+#                         cross_neutrals.loc[ion, sample_base_name] += "&" + str(neutral_mass)
+#                     cross_points.loc[ion, sample_base_name] = court_table.loc[i, "house_points"]
+#                     cross_courts.loc[ion, sample_base_name] = i
 
-    # Add duplicate annotations :
-    for i in duplicate_df.index:
+#     # Add duplicate annotations :
+#     for i in duplicate_df.index:
         
-        # Get ion 2 (duplicate) ID
-        dup_id = duplicate_df.loc[i, "ion_2_idx"]
+#         # Get ion 2 (duplicate) ID
+#         dup_id = duplicate_df.loc[i, "ion_2_idx"]
 
-        # If ion 2 is already annotated, skip
-        if type(cross_annotations.loc[dup_id, sample_base_name]) == str : continue
+#         # If ion 2 is already annotated, skip
+#         if type(cross_annotations.loc[dup_id, sample_base_name]) == str : continue
 
-        # Get ion 2 adduct as text
-        ion_2_adduct = duplicate_df.loc[i, "ion_2_adduct"]
-        ion_2_adduct = adduct_table_primary.loc[ion_2_adduct, "Adduct_code"]
+#         # Get ion 2 adduct as text
+#         ion_2_adduct = duplicate_df.loc[i, "ion_2_adduct"]
+#         ion_2_adduct = adduct_table_primary.loc[ion_2_adduct, "Adduct_code"]
 
-        # Get the selected ion ID
-        selected_id = duplicate_df.loc[i, "selected_ion"]
+#         # Get the selected ion ID
+#         selected_id = duplicate_df.loc[i, "selected_ion"]
 
-        # Get annotation for the selected ion
-        selected_adduct = cross_annotations.loc[selected_id, sample_base_name]
+#         # Get annotation for the selected ion
+#         selected_adduct = cross_annotations.loc[selected_id, sample_base_name]
         
-        # If the annotations are the same, report the duplicate annotation in the tables
-        if ion_2_adduct == selected_adduct:
-            cross_annotations.loc[dup_id, sample_base_name] = ion_2_adduct
-            cross_houses.loc[dup_id, sample_base_name] = cross_houses.loc[selected_id, sample_base_name]
-            cross_points.loc[dup_id, sample_base_name] = cross_points.loc[selected_id, sample_base_name]
-            cross_courts.loc[dup_id, sample_base_name] = cross_courts.loc[selected_id, sample_base_name]
-            cross_neutrals.loc[dup_id, sample_base_name] = cross_neutrals.loc[selected_id, sample_base_name]
-            cross_rules.loc[dup_id, sample_base_name] = cross_rules.loc[selected_id, sample_base_name]
-    return cross_annotations, cross_points, cross_courts, cross_houses, cross_rules, cross_neutrals
+#         # If the annotations are the same, report the duplicate annotation in the tables
+#         if ion_2_adduct == selected_adduct:
+#             cross_annotations.loc[dup_id, sample_base_name] = ion_2_adduct
+#             cross_houses.loc[dup_id, sample_base_name] = cross_houses.loc[selected_id, sample_base_name]
+#             cross_points.loc[dup_id, sample_base_name] = cross_points.loc[selected_id, sample_base_name]
+#             cross_courts.loc[dup_id, sample_base_name] = cross_courts.loc[selected_id, sample_base_name]
+#             cross_neutrals.loc[dup_id, sample_base_name] = cross_neutrals.loc[selected_id, sample_base_name]
+#             cross_rules.loc[dup_id, sample_base_name] = cross_rules.loc[selected_id, sample_base_name]
+#     return cross_annotations, cross_points, cross_courts, cross_houses, cross_rules, cross_neutrals
 
-def get_secondary_adducts(cross_annotations, cross_points, cross_courts,
-                          cross_houses, cross_rules, cross_neutrals, sample_base_name,
-                          node_table, spectrum_list, adduct_table_primary, 
-                          adduct_table_secondary, ion_mode, params):
-    """After processing a sample and annotating ions with the adducts in the 
-    primary adducts table, the remaining ions are annotated with adducts from
-    the secondary adducts table. This is done on the basis of the already
-    computed molecules and consumes less resources. 
-    """
+# def get_secondary_adducts(cross_annotations, cross_points, cross_courts,
+#                           cross_houses, cross_rules, cross_neutrals, sample_base_name,
+#                           node_table, spectrum_list, adduct_table_primary, 
+#                           adduct_table_secondary, ion_mode, params):
+#     """After processing a sample and annotating ions with the adducts in the 
+#     primary adducts table, the remaining ions are annotated with adducts from
+#     the secondary adducts table. This is done on the basis of the already
+#     computed molecules and consumes less resources. 
+#     """
     
-    rt_error = params['an_rt_error']
-    if params['rt_unit'] == "m":
-        rt_error = rt_error/60
+#     rt_error = params['an_rt_error']
+#     if params['rt_unit'] == "m":
+#         rt_error = rt_error/60
     
     
-    modified_cosine = ModifiedCosine(tolerance=params['an_mass_error'])
+#     modified_cosine = ModifiedCosine(tolerance=params['an_mass_error'])
     
-    # Get annotated ions
-    annotated = list(cross_neutrals[sample_base_name].dropna().index)
+#     # Get annotated ions
+#     annotated = list(cross_neutrals[sample_base_name].dropna().index)
 
-    # Get unnannotated ions
-    unnannotated = list(set(node_table.index.astype(int)) - set(annotated))
-    unnannotated_table = node_table.loc[unnannotated]
+#     # Get unnannotated ions
+#     unnannotated = list(set(node_table.index.astype(int)) - set(annotated))
+#     unnannotated_table = node_table.loc[unnannotated]
     
-    for ion_id in annotated:
+#     for ion_id in annotated:
         
-        # Get ion attributes
-        spec_id = node_table.loc[ion_id, "spec_id"]
-        neutrals = cross_neutrals.loc[ion_id, sample_base_name].split('&')
-        annotations = cross_annotations.loc[ion_id, sample_base_name].split('&')
-        neutral_rt = node_table.loc[ion_id, params['rt_field']]
-        coelution_table = unnannotated_table[unnannotated_table[params['rt_field']].between(neutral_rt - rt_error,  neutral_rt + rt_error, inclusive = "both")]
-        houses = cross_houses.loc[ion_id, sample_base_name].split('&')
+#         # Get ion attributes
+#         spec_id = node_table.loc[ion_id, "spec_id"]
+#         neutrals = cross_neutrals.loc[ion_id, sample_base_name].split('&')
+#         annotations = cross_annotations.loc[ion_id, sample_base_name].split('&')
+#         neutral_rt = node_table.loc[ion_id, params['rt_field']]
+#         coelution_table = unnannotated_table[unnannotated_table[params['rt_field']].between(neutral_rt - rt_error,  neutral_rt + rt_error, inclusive = "both")]
+#         houses = cross_houses.loc[ion_id, sample_base_name].split('&')
 
-        # Go through each house in case multiple annotations for a single ion
-        for k in range(len(houses)): 
-            house = houses[k]
-            neutral = float(neutrals[int(k)])
-            main_adduct = annotations[int(k)]
-            main_group = adduct_table_primary["Group"][adduct_table_primary["Adduct_code"] == main_adduct].iloc[0]
+#         # Go through each house in case multiple annotations for a single ion
+#         for k in range(len(houses)): 
+#             house = houses[k]
+#             neutral = float(neutrals[int(k)])
+#             main_adduct = annotations[int(k)]
+#             main_group = adduct_table_primary["Group"][adduct_table_primary["Adduct_code"] == main_adduct].iloc[0]
             
-            # Search for secondary adducts
-            for i in adduct_table_secondary.index:
-                tmp_adduct = adduct_table_secondary.loc[i, "Adduct_code"]
-                tmp_mz= ion_mass_calculator(neutral, adduct_table_secondary.loc[i, "Adduct_mass"],
-                                          adduct_table_secondary.loc[i, "Mol_multiplier"],
-                                          adduct_table_secondary.loc[i, "Charge"])
-                tmp_group = adduct_table_secondary.loc[i, "Group"]
-                tmp_table = coelution_table[params['mz_field']].between(tmp_mz - params['an_mass_error'], tmp_mz + params['an_mass_error'], inclusive = "both")
+#             # Search for secondary adducts
+#             for i in adduct_table_secondary.index:
+#                 tmp_adduct = adduct_table_secondary.loc[i, "Adduct_code"]
+#                 tmp_mz= ion_mass_calculator(neutral, adduct_table_secondary.loc[i, "Adduct_mass"],
+#                                           adduct_table_secondary.loc[i, "Mol_multiplier"],
+#                                           adduct_table_secondary.loc[i, "Charge"])
+#                 tmp_group = adduct_table_secondary.loc[i, "Group"]
+#                 tmp_table = coelution_table[params['mz_field']].between(tmp_mz - params['an_mass_error'], tmp_mz + params['an_mass_error'], inclusive = "both")
 
-                if sum(tmp_table) != 0:
-                    tmp_table = coelution_table[tmp_table]
-                    for j in tmp_table.index:
-                        valid = False
-                        Species_rule = Validator_choice(tmp_adduct, ion_mode)
-                        j_spec_id = node_table.loc[j, "spec_id"]
-                        if main_group == tmp_group:
-                            tmp_cos, n_matches = modified_cosine.pair(spectrum_list[spec_id],
-                                                                    spectrum_list[j_spec_id])
-                            if tmp_cos >= params['an_cos_threshold'] : valid = True
-                        elif Species_rule(params['an_prec_mass_error'], j_spec_id, spectrum_list) != 0:
-                            valid = True
-                        if valid :
-                            cross_courts.loc[j, sample_base_name] = cross_courts.loc[ion_id, sample_base_name]
-                            cross_points.loc[j, sample_base_name] = cross_points.loc[ion_id, sample_base_name]
+#                 if sum(tmp_table) != 0:
+#                     tmp_table = coelution_table[tmp_table]
+#                     for j in tmp_table.index:
+#                         valid = False
+#                         Species_rule = Validator_choice(tmp_adduct, ion_mode)
+#                         j_spec_id = node_table.loc[j, "spec_id"]
+#                         if main_group == tmp_group:
+#                             tmp_cos, n_matches = modified_cosine.pair(spectrum_list[spec_id],
+#                                                                     spectrum_list[j_spec_id])
+#                             if tmp_cos >= params['an_cos_threshold'] : valid = True
+#                         elif Species_rule(params['an_prec_mass_error'], j_spec_id, spectrum_list) != 0:
+#                             valid = True
+#                         if valid :
+#                             cross_courts.loc[j, sample_base_name] = cross_courts.loc[ion_id, sample_base_name]
+#                             cross_points.loc[j, sample_base_name] = cross_points.loc[ion_id, sample_base_name]
                             
-                            if cross_annotations.loc[j, sample_base_name] == None:
-                                cross_annotations.loc[j, sample_base_name] = tmp_adduct
-                                cross_houses.loc[j, sample_base_name] = house
-                                cross_neutrals.loc[j, sample_base_name] = str(neutral)
-                                cross_rules.loc[j, sample_base_name] = str(Species_rule(params['an_prec_mass_error'], j_spec_id, spectrum_list))
-                            elif tmp_adduct not in cross_annotations.loc[j, sample_base_name].split('&'):
-                                cross_annotations.loc[j, sample_base_name] += "&" + tmp_adduct
-                                cross_houses.loc[j, sample_base_name] += "&" + house
-                                cross_neutrals.loc[j, sample_base_name] += "&" + str(neutral)
-                                cross_rules.loc[j, sample_base_name] += "&" + str(Species_rule(params['an_prec_mass_error'], j_spec_id, spectrum_list))
-    return cross_annotations, cross_points, cross_courts, cross_houses, cross_rules, cross_neutrals
+#                             if cross_annotations.loc[j, sample_base_name] == None:
+#                                 cross_annotations.loc[j, sample_base_name] = tmp_adduct
+#                                 cross_houses.loc[j, sample_base_name] = house
+#                                 cross_neutrals.loc[j, sample_base_name] = str(neutral)
+#                                 cross_rules.loc[j, sample_base_name] = str(Species_rule(params['an_prec_mass_error'], j_spec_id, spectrum_list))
+#                             elif tmp_adduct not in cross_annotations.loc[j, sample_base_name].split('&'):
+#                                 cross_annotations.loc[j, sample_base_name] += "&" + tmp_adduct
+#                                 cross_houses.loc[j, sample_base_name] += "&" + house
+#                                 cross_neutrals.loc[j, sample_base_name] += "&" + str(neutral)
+#                                 cross_rules.loc[j, sample_base_name] += "&" + str(Species_rule(params['an_prec_mass_error'], j_spec_id, spectrum_list))
+#     return cross_annotations, cross_points, cross_courts, cross_houses, cross_rules, cross_neutrals
 
 
 ######################################################## Cross sample functions
@@ -2234,412 +2365,412 @@ def expand_house_table_neutrals(next_list, house_list, compatibles_list, left_li
         left_list.pop(i)
     return next_list, house_list, compatibles_list, left_list  
 
-def cross_neutral_selection(spectrum_list, cross_court_table, cross_annotations,
-                            cross_neutrals, merged_node_table, merged_edge_table,
-                            adduct_table_merged, ion_mode, params):
-    """Select the most likeley neutrals from the cross_court_table and report
-    the data on the merged node and edge tables.
-    """
+# def cross_neutral_selection(spectrum_list, cross_court_table, cross_annotations,
+#                             cross_neutrals, merged_node_table, merged_edge_table,
+#                             adduct_table_merged, ion_mode, params):
+#     """Select the most likeley neutrals from the cross_court_table and report
+#     the data on the merged node and edge tables.
+#     """
     
-    # Load parameters
-    mz_field = params['mz_field']
-    rt_field = params['rt_field']
-    charge_field = params['charge_field']
-    prec_mass_error = params['an_prec_mass_error']
-    mass_error = params['an_mass_error']
-    run_bnr = params['an_run_bnr']
-    cosine_threshold = params['an_cos_threshold']
-    cosine_hardthreshold = params['an_hardcos_threshold']
-    if ion_mode == "POS":
-        bnr_list = set(params['an_bnr_pos'])
-    else:
-        bnr_list = set(params['an_bnr_neg'])
+#     # Load parameters
+#     mz_field = params['mz_field']
+#     rt_field = params['rt_field']
+#     charge_field = params['charge_field']
+#     prec_mass_error = params['an_prec_mass_error']
+#     mass_error = params['an_mass_error']
+#     run_bnr = params['an_run_bnr']
+#     cosine_threshold = params['an_cos_threshold']
+#     cosine_hardthreshold = params['an_hardcos_threshold']
+#     if ion_mode == "POS":
+#         bnr_list = set(params['an_bnr_pos'])
+#     else:
+#         bnr_list = set(params['an_bnr_neg'])
     
-    # For each court, find houses:
-    print('')
-    print("Court processing - selecting houses and reporting results")
-    for court in tqdm(cross_court_table.index):
+#     # For each court, find houses:
+#     print('')
+#     print("Court processing - selecting houses and reporting results")
+#     for court in tqdm(cross_court_table.index):
         
-        # Get ions from court
-        ion_list = cross_court_table.loc[court, "ion_list"]
+#         # Get ions from court
+#         ion_list = cross_court_table.loc[court, "ion_list"]
 
-        # Get the involved samples
-        samples = []
-        for ion in ion_list:
-            samples += list(cross_annotations.loc[ion].dropna().index)
-        samples = list(set(samples))
-        samples.sort()
+#         # Get the involved samples
+#         samples = []
+#         for ion in ion_list:
+#             samples += list(cross_annotations.loc[ion].dropna().index)
+#         samples = list(set(samples))
+#         samples.sort()
         
-        # Create a sample table (ion x samples) and add annotations
-        samples_table = pd.DataFrame(index = ion_list, columns = samples)
-        for ion in ion_list:
-            samples = list(cross_annotations.loc[ion].dropna().index)
-            for sample in samples:
-                samples_table.loc[ion, sample] = cross_annotations.loc[ion, sample]
+#         # Create a sample table (ion x samples) and add annotations
+#         samples_table = pd.DataFrame(index = ion_list, columns = samples)
+#         for ion in ion_list:
+#             samples = list(cross_annotations.loc[ion].dropna().index)
+#             for sample in samples:
+#                 samples_table.loc[ion, sample] = cross_annotations.loc[ion, sample]
     
-        # Produce neutral table
-        neutral_table = get_crossneutral_table(samples_table, merged_node_table, cross_annotations, cross_neutrals, params)
+#         # Produce neutral table
+#         neutral_table = get_crossneutral_table(samples_table, merged_node_table, cross_annotations, cross_neutrals, params)
         
-        # Do neutral merging:
-        merged_neutral_table = neutral_merger(neutral_table, adduct_table_merged, params)
+#         # Do neutral merging:
+#         merged_neutral_table = neutral_merger(neutral_table, adduct_table_merged, params)
 
-        # Eliminate stillborn neutrals (1 or less annotations):
-        drop_list = list()
-        for i in merged_neutral_table.index:
-            if len(merged_neutral_table.loc[i, adduct_table_merged['Adduct_code']].dropna()) <= 1 :
-                drop_list.append(i)
-        merged_neutral_table.drop(drop_list, inplace = True)
+#         # Eliminate stillborn neutrals (1 or less annotations):
+#         drop_list = list()
+#         for i in merged_neutral_table.index:
+#             if len(merged_neutral_table.loc[i, adduct_table_merged['Adduct_code']].dropna()) <= 1 :
+#                 drop_list.append(i)
+#         merged_neutral_table.drop(drop_list, inplace = True)
         
-        ##################################################################
-        ################################################## BNR BEGINS HERE
-        if run_bnr:
-            drop_list = list()
-            for i in merged_neutral_table.index:
-                tmp_cos_list = list()
-                adducts = merged_neutral_table.loc[i, adduct_table_merged['Adduct_code']].dropna().index.tolist()
-                if len(bnr_list.intersection(adducts)) == 0:
-                    for adduct_1 in adducts:
-                        adduct_ions_1 = merged_neutral_table.loc[i, adduct_1]
-                        adducts.remove(adduct_1)
-                        for ion_1 in adduct_ions_1:
-                            ion_1_spec_id = merged_node_table.loc[ion_1, "spec_id"]
-                            for adduct_2 in adducts:
-                                adduct_ions_2 = merged_neutral_table.loc[i, adduct_2]
-                                for ion_2 in adduct_ions_2:
-                                    ion_2_spec_id = merged_node_table.loc[ion_2, "spec_id"]
+#         ##################################################################
+#         ################################################## BNR BEGINS HERE
+#         if run_bnr:
+#             drop_list = list()
+#             for i in merged_neutral_table.index:
+#                 tmp_cos_list = list()
+#                 adducts = merged_neutral_table.loc[i, adduct_table_merged['Adduct_code']].dropna().index.tolist()
+#                 if len(bnr_list.intersection(adducts)) == 0:
+#                     for adduct_1 in adducts:
+#                         adduct_ions_1 = merged_neutral_table.loc[i, adduct_1]
+#                         adducts.remove(adduct_1)
+#                         for ion_1 in adduct_ions_1:
+#                             ion_1_spec_id = merged_node_table.loc[ion_1, "spec_id"]
+#                             for adduct_2 in adducts:
+#                                 adduct_ions_2 = merged_neutral_table.loc[i, adduct_2]
+#                                 for ion_2 in adduct_ions_2:
+#                                     ion_2_spec_id = merged_node_table.loc[ion_2, "spec_id"]
                                     
-                                    score, n_matches = spectrum_cosine_score(spectrum1 = spectrum_list.spectrum[ion_1_spec_id],
-                                                                             spectrum2 = spectrum_list.spectrum[ion_2_spec_id],
-                                                                             tolerance = mass_error)
+#                                     score, n_matches = spectrum_cosine_score(spectrum1 = spectrum_list.spectrum[ion_1_spec_id],
+#                                                                              spectrum2 = spectrum_list.spectrum[ion_2_spec_id],
+#                                                                              tolerance = mass_error)
                                     
-                                    if n_matches <= 2 : score = 0.0
-                                    tmp_cos_list.append(score)
-                    if max(tmp_cos_list) < cosine_hardthreshold:
-                        drop_list.append(i)
-            merged_neutral_table.drop(drop_list, inplace = True)
+#                                     if n_matches <= 2 : score = 0.0
+#                                     tmp_cos_list.append(score)
+#                     if max(tmp_cos_list) < cosine_hardthreshold:
+#                         drop_list.append(i)
+#             merged_neutral_table.drop(drop_list, inplace = True)
                                 
-        ################################################## BNR ENDS HERE
-        ##################################################################
+#         ################################################## BNR ENDS HERE
+#         ##################################################################
         
-        # If onle one neutral or less remain, report
-        if len(merged_neutral_table) <= 1 :
-            selected_house = list(merged_neutral_table.index)
-            merged_neutral_table_selected = merged_neutral_table
+#         # If onle one neutral or less remain, report
+#         if len(merged_neutral_table) <= 1 :
+#             selected_house = list(merged_neutral_table.index)
+#             merged_neutral_table_selected = merged_neutral_table
         
-        # Else : continue selection
-        else : 
+#         # Else : continue selection
+#         else : 
 
-            # Create the selected neutrals table
-            merged_neutral_table_selected = pd.DataFrame()
+#             # Create the selected neutrals table
+#             merged_neutral_table_selected = pd.DataFrame()
             
-            end_selection = False
-            while end_selection == False :
-                # Do ion affinity here:
-###############################################################################
-###################################################### ION AFFINITY BEGINS HERE
-                # Ion affinity on neutral remains:
-                # Find conflicted ions
-                contested_ions = pd.DataFrame(columns = ["conflicted_neutrals"])
-                neutral_pool = list(merged_neutral_table.index)
-                while len(neutral_pool) > 1 :
-                    neutral_1 = neutral_pool[0]
-                    ions_1 = set(flatten(merged_neutral_table.loc[neutral_1, adduct_table_merged['Adduct_code']].dropna()))
-                    neutral_pool.remove(neutral_1)
-                    for neutral_2 in neutral_pool:
-                        ions_2 = set(flatten(merged_neutral_table.loc[neutral_2, adduct_table_merged['Adduct_code']].dropna()))
-                        tmp_contested_ions = list(ions_1.intersection(ions_2))
-                        for ion in tmp_contested_ions :
-                            if ion not in contested_ions.index:
-                                contested_ions.loc[ion, "conflicted_neutrals"] = [neutral_1, neutral_2]
-                                contested_ions.loc[ion, "conflicted_neutrals"].sort()
-                            else:
-                                contested_ions.loc[ion, "conflicted_neutrals"] += [neutral_1, neutral_2]
-                                contested_ions.loc[ion, "conflicted_neutrals"] = list(set(contested_ions.loc[ion, "conflicted_neutrals"]))
-                                contested_ions.loc[ion, "conflicted_neutrals"].sort()
+#             end_selection = False
+#             while end_selection == False :
+#                 # Do ion affinity here:
+# ###############################################################################
+# ###################################################### ION AFFINITY BEGINS HERE
+#                 # Ion affinity on neutral remains:
+#                 # Find conflicted ions
+#                 contested_ions = pd.DataFrame(columns = ["conflicted_neutrals"])
+#                 neutral_pool = list(merged_neutral_table.index)
+#                 while len(neutral_pool) > 1 :
+#                     neutral_1 = neutral_pool[0]
+#                     ions_1 = set(flatten(merged_neutral_table.loc[neutral_1, adduct_table_merged['Adduct_code']].dropna()))
+#                     neutral_pool.remove(neutral_1)
+#                     for neutral_2 in neutral_pool:
+#                         ions_2 = set(flatten(merged_neutral_table.loc[neutral_2, adduct_table_merged['Adduct_code']].dropna()))
+#                         tmp_contested_ions = list(ions_1.intersection(ions_2))
+#                         for ion in tmp_contested_ions :
+#                             if ion not in contested_ions.index:
+#                                 contested_ions.loc[ion, "conflicted_neutrals"] = [neutral_1, neutral_2]
+#                                 contested_ions.loc[ion, "conflicted_neutrals"].sort()
+#                             else:
+#                                 contested_ions.loc[ion, "conflicted_neutrals"] += [neutral_1, neutral_2]
+#                                 contested_ions.loc[ion, "conflicted_neutrals"] = list(set(contested_ions.loc[ion, "conflicted_neutrals"]))
+#                                 contested_ions.loc[ion, "conflicted_neutrals"].sort()
                                 
-                # Get unresolved neutrals (neutrals with only contested ions)
-                conflicted_neutrals = list()
-                for neutral in merged_neutral_table.index:
-                    resolved_ions = set(flatten(merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()))
-                    resolved_ions = resolved_ions - set(contested_ions.index)
-                    if len(resolved_ions) == 0 : conflicted_neutrals.append(neutral)
+#                 # Get unresolved neutrals (neutrals with only contested ions)
+#                 conflicted_neutrals = list()
+#                 for neutral in merged_neutral_table.index:
+#                     resolved_ions = set(flatten(merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()))
+#                     resolved_ions = resolved_ions - set(contested_ions.index)
+#                     if len(resolved_ions) == 0 : conflicted_neutrals.append(neutral)
                     
-                # ???
-                drop_list = list()
-                for ion in contested_ions.index:
-                    contested_ions.loc[ion, "conflicted_neutrals"] = list(set(contested_ions.loc[ion, "conflicted_neutrals"]) - set(conflicted_neutrals))
-                    if len(contested_ions.loc[ion, "conflicted_neutrals"]) <= 1 :
-                        drop_list.append(ion)
-                contested_ions.drop(drop_list, inplace = True)
+#                 # ???
+#                 drop_list = list()
+#                 for ion in contested_ions.index:
+#                     contested_ions.loc[ion, "conflicted_neutrals"] = list(set(contested_ions.loc[ion, "conflicted_neutrals"]) - set(conflicted_neutrals))
+#                     if len(contested_ions.loc[ion, "conflicted_neutrals"]) <= 1 :
+#                         drop_list.append(ion)
+#                 contested_ions.drop(drop_list, inplace = True)
                 
-                # For each conflicted ion, do ion affinity:
-                same_group_list = list()
-                migration_list = list()
-                resolved_list = list()
-                for ion_1 in contested_ions.index:
-                    ion_1_spec_id = merged_node_table.loc[ion_1, "spec_id"]
-                    affinity_table = list()
-                    resolved = True
-                    for neutral in contested_ions.loc[ion_1, "conflicted_neutrals"]:
+#                 # For each conflicted ion, do ion affinity:
+#                 same_group_list = list()
+#                 migration_list = list()
+#                 resolved_list = list()
+#                 for ion_1 in contested_ions.index:
+#                     ion_1_spec_id = merged_node_table.loc[ion_1, "spec_id"]
+#                     affinity_table = list()
+#                     resolved = True
+#                     for neutral in contested_ions.loc[ion_1, "conflicted_neutrals"]:
 
-                        for i in merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna().index:
-                            if ion_1 in merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']][i] : 
-                                ion_1_group = i
-                        ion_1_group = adduct_table_merged['Group'][adduct_table_merged['Adduct_code'] == ion_1_group].iloc[0]
-                        conflicted_score = False
-                        neutral_ions = set(flatten(merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()))
-                        neutral_ions = list(neutral_ions - set(contested_ions.index))
-                        if len(neutral_ions) == 0 :
-                            neutral_ions = list(flatten(merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()))
-                            neutral_ions.remove(ion_1)
-                            conflicted_score = True
-                        score_table = list()
-                        # Get best cosine score with associated n_matches
-                        for ion_2 in neutral_ions:
-                            for i in merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna().index:
-                                if ion_2 in merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']][i] : 
-                                    ion_2_group = i
-                            ion_2_group = adduct_table_merged['Group'][adduct_table_merged['Adduct_code'] == ion_2_group].iloc[0]
+#                         for i in merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna().index:
+#                             if ion_1 in merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']][i] : 
+#                                 ion_1_group = i
+#                         ion_1_group = adduct_table_merged['Group'][adduct_table_merged['Adduct_code'] == ion_1_group].iloc[0]
+#                         conflicted_score = False
+#                         neutral_ions = set(flatten(merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()))
+#                         neutral_ions = list(neutral_ions - set(contested_ions.index))
+#                         if len(neutral_ions) == 0 :
+#                             neutral_ions = list(flatten(merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()))
+#                             neutral_ions.remove(ion_1)
+#                             conflicted_score = True
+#                         score_table = list()
+#                         # Get best cosine score with associated n_matches
+#                         for ion_2 in neutral_ions:
+#                             for i in merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna().index:
+#                                 if ion_2 in merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']][i] : 
+#                                     ion_2_group = i
+#                             ion_2_group = adduct_table_merged['Group'][adduct_table_merged['Adduct_code'] == ion_2_group].iloc[0]
               
-                            # cosine, shared peaks, rule_points, dmz, drt, cohort_size
-                            ion_2_spec_id = merged_node_table.loc[ion_2, "spec_id"]
+#                             # cosine, shared peaks, rule_points, dmz, drt, cohort_size
+#                             ion_2_spec_id = merged_node_table.loc[ion_2, "spec_id"]
                             
                             
-                            score, n_matches = spectrum_cosine_score(spectrum1 = spectrum_list.spectrum[ion_1_spec_id],
-                                                                     spectrum2 = spectrum_list.spectrum[ion_2_spec_id],
-                                                                     tolerance = mass_error)
+#                             score, n_matches = spectrum_cosine_score(spectrum1 = spectrum_list.spectrum[ion_1_spec_id],
+#                                                                      spectrum2 = spectrum_list.spectrum[ion_2_spec_id],
+#                                                                      tolerance = mass_error)
                             
-                            if score < cosine_threshold : score = 0.0
-                            prod = score * n_matches
-                            if ion_1_group == ion_2_group :
-                                same_group = True
-                            else:
-                                same_group = False
-                            score_table.append((score, n_matches, prod, same_group))
-                        score_table = pd.DataFrame(score_table, columns = ['cos', 'matches', 'prod', 'same_group'])
-                        score_table.sort_values("prod", ascending = False, inplace = True)
+#                             if score < cosine_threshold : score = 0.0
+#                             prod = score * n_matches
+#                             if ion_1_group == ion_2_group :
+#                                 same_group = True
+#                             else:
+#                                 same_group = False
+#                             score_table.append((score, n_matches, prod, same_group))
+#                         score_table = pd.DataFrame(score_table, columns = ['cos', 'matches', 'prod', 'same_group'])
+#                         score_table.sort_values("prod", ascending = False, inplace = True)
                         
-                        # Get d_mz and d_rt from neutral
-                        annotation = merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()
-                        ion_count = len(annotation)
-                        annotation = [i for i in annotation.index if ion_1 in annotation[i]][0]
-                        add_idx = adduct_table_merged.index[adduct_table_merged['Adduct_code'] == annotation][0]
-                        ion_neutral = neutral_mass_calculator(merged_node_table.loc[ion_1, mz_field],
-                                                adduct_table_merged.loc[add_idx, "Adduct_mass"],
-                                                adduct_table_merged.loc[add_idx, "Mol_multiplier"],
-                                                adduct_table_merged.loc[add_idx, "Charge"])
-                        d_mz = abs(ion_neutral - merged_neutral_table.loc[neutral, "mass"])
-                        d_rt = abs(merged_node_table.loc[ion_1, rt_field] - merged_neutral_table.loc[neutral, "rt"])
-                        Species_rule = Validator_choice(annotation, ion_mode)
-                        rule_point = Species_rule(prec_mass_error, ion_1_spec_id, spectrum_list)
-                        if len(score_table) != score_table['same_group'].sum():
-                            same_group = False
-                        else:
-                            same_group = True
-                        affinity_table.append((neutral,
-                                               score_table['cos'].iloc[0],
-                                               score_table['matches'].iloc[0],
-                                               rule_point,
-                                               (score_table['cos'].iloc[0] * score_table['matches'].iloc[0]) + rule_point,
-                                               d_mz,
-                                               d_rt,
-                                               d_mz * d_rt,
-                                               ion_count,
-                                               conflicted_score,
-                                               same_group))
-                    affinity_table = pd.DataFrame(affinity_table, columns = ['neutral', 'cos',
-                                                                             'matches', 'rule_points', 'score_1',
-                                                                             'd_mz', 'd_rt', 'score_2', 'ion_count',
-                                                                             'conflicted_score', 'same_group'])
-                    affinity_table.sort_values(by = ['score_1', 'score_2', 'ion_count'], ascending = [False, True, False], inplace = True)
-                    max_score = affinity_table['score_1'].max()
-                    if sum(affinity_table['score_1'].between(max_score - 0.05, max_score + 0.05, inclusive = "both")) > 1 :
-                        resolved = False
-                    migration_list.append(list(affinity_table['neutral']))
-                    resolved_list.append(resolved)
-                    if len(affinity_table) != affinity_table['same_group'].sum():
-                        same_group_list.append(False)
-                    else:
-                        same_group_list.append(True)
-                contested_ions['selected_neutrals'] = migration_list
-                contested_ions['resolved'] = resolved_list
-                contested_ions['same_group'] = same_group_list
-                contested_ions = contested_ions[contested_ions['same_group']]
-                neutral_ion_count = pd.DataFrame(columns = ['ion_count'])
-                for i in merged_neutral_table.index:
-                    neutral_ion_count.loc[i, 'ion_count'] = len(list(flatten(merged_neutral_table.loc[i, adduct_table_merged['Adduct_code']].dropna())))
-                neutral_ion_count["ion_count"] = neutral_ion_count["ion_count"].astype(int)
+#                         # Get d_mz and d_rt from neutral
+#                         annotation = merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()
+#                         ion_count = len(annotation)
+#                         annotation = [i for i in annotation.index if ion_1 in annotation[i]][0]
+#                         add_idx = adduct_table_merged.index[adduct_table_merged['Adduct_code'] == annotation][0]
+#                         ion_neutral = neutral_mass_calculator(merged_node_table.loc[ion_1, mz_field],
+#                                                 adduct_table_merged.loc[add_idx, "Adduct_mass"],
+#                                                 adduct_table_merged.loc[add_idx, "Mol_multiplier"],
+#                                                 adduct_table_merged.loc[add_idx, "Charge"])
+#                         d_mz = abs(ion_neutral - merged_neutral_table.loc[neutral, "mass"])
+#                         d_rt = abs(merged_node_table.loc[ion_1, rt_field] - merged_neutral_table.loc[neutral, "rt"])
+#                         Species_rule = Validator_choice(annotation, ion_mode)
+#                         rule_point = Species_rule(prec_mass_error, ion_1_spec_id, spectrum_list)
+#                         if len(score_table) != score_table['same_group'].sum():
+#                             same_group = False
+#                         else:
+#                             same_group = True
+#                         affinity_table.append((neutral,
+#                                                score_table['cos'].iloc[0],
+#                                                score_table['matches'].iloc[0],
+#                                                rule_point,
+#                                                (score_table['cos'].iloc[0] * score_table['matches'].iloc[0]) + rule_point,
+#                                                d_mz,
+#                                                d_rt,
+#                                                d_mz * d_rt,
+#                                                ion_count,
+#                                                conflicted_score,
+#                                                same_group))
+#                     affinity_table = pd.DataFrame(affinity_table, columns = ['neutral', 'cos',
+#                                                                              'matches', 'rule_points', 'score_1',
+#                                                                              'd_mz', 'd_rt', 'score_2', 'ion_count',
+#                                                                              'conflicted_score', 'same_group'])
+#                     affinity_table.sort_values(by = ['score_1', 'score_2', 'ion_count'], ascending = [False, True, False], inplace = True)
+#                     max_score = affinity_table['score_1'].max()
+#                     if sum(affinity_table['score_1'].between(max_score - 0.05, max_score + 0.05, inclusive = "both")) > 1 :
+#                         resolved = False
+#                     migration_list.append(list(affinity_table['neutral']))
+#                     resolved_list.append(resolved)
+#                     if len(affinity_table) != affinity_table['same_group'].sum():
+#                         same_group_list.append(False)
+#                     else:
+#                         same_group_list.append(True)
+#                 contested_ions['selected_neutrals'] = migration_list
+#                 contested_ions['resolved'] = resolved_list
+#                 contested_ions['same_group'] = same_group_list
+#                 contested_ions = contested_ions[contested_ions['same_group']]
+#                 neutral_ion_count = pd.DataFrame(columns = ['ion_count'])
+#                 for i in merged_neutral_table.index:
+#                     neutral_ion_count.loc[i, 'ion_count'] = len(list(flatten(merged_neutral_table.loc[i, adduct_table_merged['Adduct_code']].dropna())))
+#                 neutral_ion_count["ion_count"] = neutral_ion_count["ion_count"].astype(int)
                 
-                eliminating_neutrals = True
-                while eliminating_neutrals:                
-                    neutral_ion_count["new_ion_count"] = neutral_ion_count["ion_count"].copy()
-                    for i in contested_ions.index:
-                        if contested_ions.loc[i, "resolved"]:
-                            loosing_neutrals = contested_ions.loc[i, "selected_neutrals"][1:]
-                            for j in loosing_neutrals:
-                                neutral_ion_count.loc[j, "new_ion_count"] = neutral_ion_count.loc[j, "ion_count"] - 1
-                    dead_neutrals = neutral_ion_count.index[neutral_ion_count['new_ion_count'] <= 1]
-                    if len(dead_neutrals) > 0 :
-                        for i in dead_neutrals:
-                            neutral_ion_count.drop(i, inplace = True)
-                            merged_neutral_table.drop(i, inplace = True)
-                            for j in contested_ions.index:
-                                if i in contested_ions.loc[j, "conflicted_neutrals"]:
-                                    contested_ions.loc[j, "conflicted_neutrals"].remove(i)
-                                if i in contested_ions.loc[j, "selected_neutrals"] :
-                                    contested_ions.loc[j, "selected_neutrals"].remove(i)
-                        drop_list = []
-                        for i in contested_ions.index:
-                            if len(contested_ions.loc[i, "selected_neutrals"]) == 0 :
-                                drop_list.append(i)
-                            if len(contested_ions.loc[i, "selected_neutrals"]) == 1 :
-                                contested_ions.loc[i, "resolved"] = True
-                        contested_ions.drop(drop_list, inplace = True)
-                    else:
-                        eliminating_neutrals = False
-                #Once this is done, do the migration:
-                for i in contested_ions.index:
-                    for j in contested_ions.loc[i, "selected_neutrals"][1:]:
-                        for k in adduct_table_merged['Adduct_code']:
-                            if merged_neutral_table.loc[j, k] != None and i in merged_neutral_table.loc[j, k]:
-                                merged_neutral_table.loc[j, k].remove(i)
-                                if len(merged_neutral_table.loc[j, k]) == 0:
-                                    merged_neutral_table.loc[j, k] = None
-######################################################## ION AFFINITY ENDS HERE
-###############################################################################                
+#                 eliminating_neutrals = True
+#                 while eliminating_neutrals:                
+#                     neutral_ion_count["new_ion_count"] = neutral_ion_count["ion_count"].copy()
+#                     for i in contested_ions.index:
+#                         if contested_ions.loc[i, "resolved"]:
+#                             loosing_neutrals = contested_ions.loc[i, "selected_neutrals"][1:]
+#                             for j in loosing_neutrals:
+#                                 neutral_ion_count.loc[j, "new_ion_count"] = neutral_ion_count.loc[j, "ion_count"] - 1
+#                     dead_neutrals = neutral_ion_count.index[neutral_ion_count['new_ion_count'] <= 1]
+#                     if len(dead_neutrals) > 0 :
+#                         for i in dead_neutrals:
+#                             neutral_ion_count.drop(i, inplace = True)
+#                             merged_neutral_table.drop(i, inplace = True)
+#                             for j in contested_ions.index:
+#                                 if i in contested_ions.loc[j, "conflicted_neutrals"]:
+#                                     contested_ions.loc[j, "conflicted_neutrals"].remove(i)
+#                                 if i in contested_ions.loc[j, "selected_neutrals"] :
+#                                     contested_ions.loc[j, "selected_neutrals"].remove(i)
+#                         drop_list = []
+#                         for i in contested_ions.index:
+#                             if len(contested_ions.loc[i, "selected_neutrals"]) == 0 :
+#                                 drop_list.append(i)
+#                             if len(contested_ions.loc[i, "selected_neutrals"]) == 1 :
+#                                 contested_ions.loc[i, "resolved"] = True
+#                         contested_ions.drop(drop_list, inplace = True)
+#                     else:
+#                         eliminating_neutrals = False
+#                 #Once this is done, do the migration:
+#                 for i in contested_ions.index:
+#                     for j in contested_ions.loc[i, "selected_neutrals"][1:]:
+#                         for k in adduct_table_merged['Adduct_code']:
+#                             if merged_neutral_table.loc[j, k] != None and i in merged_neutral_table.loc[j, k]:
+#                                 merged_neutral_table.loc[j, k].remove(i)
+#                                 if len(merged_neutral_table.loc[j, k]) == 0:
+#                                     merged_neutral_table.loc[j, k] = None
+# ######################################################## ION AFFINITY ENDS HERE
+# ###############################################################################                
                 
-                # Check neutral compatibility:
-                merged_neutral_table = neutral_compatibility(merged_neutral_table, adduct_table_merged)
+#                 # Check neutral compatibility:
+#                 merged_neutral_table = neutral_compatibility(merged_neutral_table, adduct_table_merged)
                 
-                # Eject inert neutrals:
-                inert_neutrals = list()
-                neutral_count = len(merged_neutral_table.index)
-                for i in merged_neutral_table.index:
-                    inert_neutrals.append((i, len(merged_neutral_table.loc[i, "compatibles"]) + 1))
-                inert_neutrals = pd.DataFrame(inert_neutrals, columns = ['neutral', 'compatible_count'])
-                inert_neutrals = inert_neutrals[inert_neutrals['compatible_count'] == neutral_count]
-                if len(inert_neutrals) > 0 : 
-                    merged_neutral_table_selected = pd.concat([merged_neutral_table_selected, merged_neutral_table.loc[inert_neutrals['neutral']]])
-                    merged_neutral_table.drop(inert_neutrals['neutral'], inplace = True)
+#                 # Eject inert neutrals:
+#                 inert_neutrals = list()
+#                 neutral_count = len(merged_neutral_table.index)
+#                 for i in merged_neutral_table.index:
+#                     inert_neutrals.append((i, len(merged_neutral_table.loc[i, "compatibles"]) + 1))
+#                 inert_neutrals = pd.DataFrame(inert_neutrals, columns = ['neutral', 'compatible_count'])
+#                 inert_neutrals = inert_neutrals[inert_neutrals['compatible_count'] == neutral_count]
+#                 if len(inert_neutrals) > 0 : 
+#                     merged_neutral_table_selected = pd.concat([merged_neutral_table_selected, merged_neutral_table.loc[inert_neutrals['neutral']]])
+#                     merged_neutral_table.drop(inert_neutrals['neutral'], inplace = True)
 
-                # Check neutral compatibility:
-                merged_neutral_table = neutral_compatibility(merged_neutral_table, adduct_table_merged)
+#                 # Check neutral compatibility:
+#                 merged_neutral_table = neutral_compatibility(merged_neutral_table, adduct_table_merged)
 
-                if len(merged_neutral_table) == 0 :
-                    selected_house = list(merged_neutral_table_selected.index)
-                    end_selection = True
-                else:
+#                 if len(merged_neutral_table) == 0 :
+#                     selected_house = list(merged_neutral_table_selected.index)
+#                     end_selection = True
+#                 else:
                     
-                    # Detect uncompatibles (Neutrals compatible with nothing else):
-                    uncompatibles = []
-                    for i in merged_neutral_table.index:
-                        if len(merged_neutral_table.loc[i, "compatibles"]) == 0:
-                            uncompatibles.append([i])   
+#                     # Detect uncompatibles (Neutrals compatible with nothing else):
+#                     uncompatibles = []
+#                     for i in merged_neutral_table.index:
+#                         if len(merged_neutral_table.loc[i, "compatibles"]) == 0:
+#                             uncompatibles.append([i])   
             
-                    # Get houses (combinations of compatible neutrals from the same court)
-                    houses = []
-                    neutral_pool = list(merged_neutral_table.index)
-                    tmp_merged_neutral_table = merged_neutral_table.copy()
-                    while len(neutral_pool) > 0:
-                        neutral_seed = neutral_pool[0]
-                        #for neutral_seed in merged_neutral_table.index:
-                        next_list, house_list, compatibles_list, left_list = initialise_house_table_neutrals(neutral_seed, tmp_merged_neutral_table)       
-                        if len(house_list) == 0 : houses.append([neutral_seed])
-                        while len(house_list) > 0 :
-                            next_list, house_list, compatibles_list, left_list, houses = clean_house_table_neutrals(next_list, house_list, compatibles_list, left_list, houses)
-                            next_list, house_list, compatibles_list, left_list = expand_house_table_neutrals(next_list, house_list, compatibles_list, left_list, tmp_merged_neutral_table)
-                        tmp_merged_neutral_table.drop(neutral_seed, inplace = True)
-                        for i in tmp_merged_neutral_table.index:
-                            if neutral_seed in tmp_merged_neutral_table.loc[i, "compatibles"]:
-                                tmp_merged_neutral_table.loc[i, "compatibles"].remove(neutral_seed)
-                        neutral_pool = list(tmp_merged_neutral_table.index)
-                    houses += uncompatibles
+#                     # Get houses (combinations of compatible neutrals from the same court)
+#                     houses = []
+#                     neutral_pool = list(merged_neutral_table.index)
+#                     tmp_merged_neutral_table = merged_neutral_table.copy()
+#                     while len(neutral_pool) > 0:
+#                         neutral_seed = neutral_pool[0]
+#                         #for neutral_seed in merged_neutral_table.index:
+#                         next_list, house_list, compatibles_list, left_list = initialise_house_table_neutrals(neutral_seed, tmp_merged_neutral_table)       
+#                         if len(house_list) == 0 : houses.append([neutral_seed])
+#                         while len(house_list) > 0 :
+#                             next_list, house_list, compatibles_list, left_list, houses = clean_house_table_neutrals(next_list, house_list, compatibles_list, left_list, houses)
+#                             next_list, house_list, compatibles_list, left_list = expand_house_table_neutrals(next_list, house_list, compatibles_list, left_list, tmp_merged_neutral_table)
+#                         tmp_merged_neutral_table.drop(neutral_seed, inplace = True)
+#                         for i in tmp_merged_neutral_table.index:
+#                             if neutral_seed in tmp_merged_neutral_table.loc[i, "compatibles"]:
+#                                 tmp_merged_neutral_table.loc[i, "compatibles"].remove(neutral_seed)
+#                         neutral_pool = list(tmp_merged_neutral_table.index)
+#                     houses += uncompatibles
                     
-                    # Create house table for the neutral combinations and assign scores to houses
-                    tmp_points_list = list()
-                    for i in range(len(houses)):
-                        tmp_points = 0.0
-                        house = houses[i]
-                        for j in house:
-                            tmp_points += merged_neutral_table.loc[j, "points"]
-                        tmp_points_list.append(tmp_points)
-                    house_table = pd.DataFrame()
-                    house_table['house'] = houses
-                    house_table['points'] = tmp_points_list
+#                     # Create house table for the neutral combinations and assign scores to houses
+#                     tmp_points_list = list()
+#                     for i in range(len(houses)):
+#                         tmp_points = 0.0
+#                         house = houses[i]
+#                         for j in house:
+#                             tmp_points += merged_neutral_table.loc[j, "points"]
+#                         tmp_points_list.append(tmp_points)
+#                     house_table = pd.DataFrame()
+#                     house_table['house'] = houses
+#                     house_table['points'] = tmp_points_list
                     
-                    # Select the best scoring house and report annotation results:
-                    selected_house = house_table['points'].idxmax()
-                    selected_house = house_table.loc[selected_house, "house"]
-                    if len(selected_house) == len(merged_neutral_table.index) :
-                        end_selection = True
-                    else: 
-                        # Ion affinity on neutral remains:
-                        # Find conflicted ions
-                        contested_ions = pd.DataFrame(columns = ["conflicted_neutrals"])
-                        neutral_pool = list(merged_neutral_table.index)
-                        while len(neutral_pool) > 1 :
-                            neutral_1 = neutral_pool[0]
-                            ions_1 = set(flatten(merged_neutral_table.loc[neutral_1, adduct_table_merged['Adduct_code']].dropna()))
-                            neutral_pool.remove(neutral_1)
-                            for neutral_2 in neutral_pool:
-                                ions_2 = set(flatten(merged_neutral_table.loc[neutral_2, adduct_table_merged['Adduct_code']].dropna()))
-                                tmp_contested_ions = list(ions_1.intersection(ions_2))
-                                for ion in tmp_contested_ions :
-                                    if ion not in contested_ions.index:
-                                        contested_ions.loc[ion, "conflicted_neutrals"] = [neutral_1, neutral_2]
-                                        contested_ions.loc[ion, "conflicted_neutrals"].sort()
-                                    else:
-                                        contested_ions.loc[ion, "conflicted_neutrals"] += [neutral_1, neutral_2]
-                                        contested_ions.loc[ion, "conflicted_neutrals"] = list(set(contested_ions.loc[ion, "conflicted_neutrals"]))
-                                        contested_ions.loc[ion, "conflicted_neutrals"].sort()
+#                     # Select the best scoring house and report annotation results:
+#                     selected_house = house_table['points'].idxmax()
+#                     selected_house = house_table.loc[selected_house, "house"]
+#                     if len(selected_house) == len(merged_neutral_table.index) :
+#                         end_selection = True
+#                     else: 
+#                         # Ion affinity on neutral remains:
+#                         # Find conflicted ions
+#                         contested_ions = pd.DataFrame(columns = ["conflicted_neutrals"])
+#                         neutral_pool = list(merged_neutral_table.index)
+#                         while len(neutral_pool) > 1 :
+#                             neutral_1 = neutral_pool[0]
+#                             ions_1 = set(flatten(merged_neutral_table.loc[neutral_1, adduct_table_merged['Adduct_code']].dropna()))
+#                             neutral_pool.remove(neutral_1)
+#                             for neutral_2 in neutral_pool:
+#                                 ions_2 = set(flatten(merged_neutral_table.loc[neutral_2, adduct_table_merged['Adduct_code']].dropna()))
+#                                 tmp_contested_ions = list(ions_1.intersection(ions_2))
+#                                 for ion in tmp_contested_ions :
+#                                     if ion not in contested_ions.index:
+#                                         contested_ions.loc[ion, "conflicted_neutrals"] = [neutral_1, neutral_2]
+#                                         contested_ions.loc[ion, "conflicted_neutrals"].sort()
+#                                     else:
+#                                         contested_ions.loc[ion, "conflicted_neutrals"] += [neutral_1, neutral_2]
+#                                         contested_ions.loc[ion, "conflicted_neutrals"] = list(set(contested_ions.loc[ion, "conflicted_neutrals"]))
+#                                         contested_ions.loc[ion, "conflicted_neutrals"].sort()
                         
-                        winning_neutral = list()
-                        loosing_neutrals = list()
-                        for i in contested_ions.index:
-                            tmp_win = list(set(selected_house).intersection(contested_ions.loc[i, "conflicted_neutrals"]))
-                            tmp_loss = list(set(contested_ions.loc[i, "conflicted_neutrals"]) - set(tmp_win))
-                            winning_neutral.append(tmp_win)
-                            loosing_neutrals.append(tmp_loss)
-                        contested_ions['winning_neutral'] = winning_neutral
-                        contested_ions['loosing_neutrals'] = loosing_neutrals
-                        for i in contested_ions.index:
-                            for neutral in contested_ions.loc[i, "loosing_neutrals"]:
-                                for adduct in merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna().index:
-                                    merged_neutral_table.loc[neutral, adduct] = list(set(merged_neutral_table.loc[neutral, adduct]) - set([i]))
-                                    if len(merged_neutral_table.loc[neutral, adduct]) == 0 :
-                                        merged_neutral_table.loc[neutral, adduct] = None
-                        dead_neutrals = list()
-                        for neutral in merged_neutral_table.index:
-                            if len(merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()) <= 1 :
-                                dead_neutrals.append(neutral)
-                        merged_neutral_table.drop(dead_neutrals, inplace = True)
+#                         winning_neutral = list()
+#                         loosing_neutrals = list()
+#                         for i in contested_ions.index:
+#                             tmp_win = list(set(selected_house).intersection(contested_ions.loc[i, "conflicted_neutrals"]))
+#                             tmp_loss = list(set(contested_ions.loc[i, "conflicted_neutrals"]) - set(tmp_win))
+#                             winning_neutral.append(tmp_win)
+#                             loosing_neutrals.append(tmp_loss)
+#                         contested_ions['winning_neutral'] = winning_neutral
+#                         contested_ions['loosing_neutrals'] = loosing_neutrals
+#                         for i in contested_ions.index:
+#                             for neutral in contested_ions.loc[i, "loosing_neutrals"]:
+#                                 for adduct in merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna().index:
+#                                     merged_neutral_table.loc[neutral, adduct] = list(set(merged_neutral_table.loc[neutral, adduct]) - set([i]))
+#                                     if len(merged_neutral_table.loc[neutral, adduct]) == 0 :
+#                                         merged_neutral_table.loc[neutral, adduct] = None
+#                         dead_neutrals = list()
+#                         for neutral in merged_neutral_table.index:
+#                             if len(merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()) <= 1 :
+#                                 dead_neutrals.append(neutral)
+#                         merged_neutral_table.drop(dead_neutrals, inplace = True)
 
                                    
-        # Report results
-        merged_neutral_table = merged_neutral_table_selected
-        for neutral in selected_house:
-            neutral_mass = merged_neutral_table.loc[neutral, "mass"]
-            neutral_rt = merged_neutral_table.loc[neutral, "rt"]
-            neutral_idx = merged_node_table.index.max() + 1
-            merged_node_table.loc[neutral_idx] = [None]*len(merged_node_table.columns)
-            merged_node_table.loc[neutral_idx, mz_field] = neutral_mass
-            merged_node_table.loc[neutral_idx, rt_field] = neutral_rt
-            merged_node_table.loc[neutral_idx, 'status'] = "neutral"
-            merged_node_table.loc[neutral_idx, charge_field] = 0
-            merged_node_table.loc[neutral_idx, 'TIC'] = 0.0
-            annotations = merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()
-            for annotation in annotations.index:
-                ion_list = annotations[annotation]
-                for ion in ion_list:
-                    mz_gap = round(merged_node_table.loc[ion, mz_field] - neutral_mass, 4)
-                    new_edge = merged_edge_table.index.max() + 1
-                    merged_edge_table.loc[new_edge] = [neutral_idx, ion, 0, 0, 0.0, 0.0, mz_gap, "add_edge", None, annotation, annotation]
-                    merged_node_table.loc[neutral_idx, 'TIC'] += merged_node_table.loc[ion, 'TIC']
-                    if merged_node_table.loc[ion, 'Adnotation'] == None :
-                        merged_node_table.loc[ion, 'Adnotation'] = annotation
-                    else :
-                        sys.exit("ERROR HERE FOR SOME REASON : already adnotated ion?")
-    return merged_node_table, merged_edge_table
+#         # Report results
+#         merged_neutral_table = merged_neutral_table_selected
+#         for neutral in selected_house:
+#             neutral_mass = merged_neutral_table.loc[neutral, "mass"]
+#             neutral_rt = merged_neutral_table.loc[neutral, "rt"]
+#             neutral_idx = merged_node_table.index.max() + 1
+#             merged_node_table.loc[neutral_idx] = [None]*len(merged_node_table.columns)
+#             merged_node_table.loc[neutral_idx, mz_field] = neutral_mass
+#             merged_node_table.loc[neutral_idx, rt_field] = neutral_rt
+#             merged_node_table.loc[neutral_idx, 'status'] = "neutral"
+#             merged_node_table.loc[neutral_idx, charge_field] = 0
+#             merged_node_table.loc[neutral_idx, 'TIC'] = 0.0
+#             annotations = merged_neutral_table.loc[neutral, adduct_table_merged['Adduct_code']].dropna()
+#             for annotation in annotations.index:
+#                 ion_list = annotations[annotation]
+#                 for ion in ion_list:
+#                     mz_gap = round(merged_node_table.loc[ion, mz_field] - neutral_mass, 4)
+#                     new_edge = merged_edge_table.index.max() + 1
+#                     merged_edge_table.loc[new_edge] = [neutral_idx, ion, 0, 0, 0.0, 0.0, mz_gap, "add_edge", None, annotation, annotation]
+#                     merged_node_table.loc[neutral_idx, 'TIC'] += merged_node_table.loc[ion, 'TIC']
+#                     if merged_node_table.loc[ion, 'Adnotation'] == None :
+#                         merged_node_table.loc[ion, 'Adnotation'] = annotation
+#                     else :
+#                         sys.exit("ERROR HERE FOR SOME REASON : already adnotated ion?")
+#     return merged_node_table, merged_edge_table
 
 def update_node_table(merged_node_table, merged_edge_table, cross_annotations,
                       cross_rules, adduct_table_merged, params):
@@ -2930,274 +3061,274 @@ def Float_prec_mz(s, db_params):
     return s
 
 #################################################### Cosiner functions
-def cosiner_single(node_table, edge_table, mgf, mgf_data, ion_mode, params):
+# def cosiner_single(node_table, edge_table, mgf, mgf_data, ion_mode, params):
 
-    idx_column = params['index_col']
-    modified_cosine = ModifiedCosine(tolerance=params['c_mass_error'])
-    cosiner_threshold= params['c_hardcos_threshold']
-    matched_peaks = params['c_matched_peaks']
-    rt_field = params['rt_field']
-    mz_field = params['mz_field']
-    cosine_threshold= params['c_lowcos_threshold']
-    out_path_full = params['mix_out_6_1']
+#     idx_column = params['index_col']
+#     modified_cosine = ModifiedCosine(tolerance=params['c_mass_error'])
+#     cosiner_threshold= params['c_hardcos_threshold']
+#     matched_peaks = params['c_matched_peaks']
+#     rt_field = params['rt_field']
+#     mz_field = params['mz_field']
+#     cosine_threshold= params['c_lowcos_threshold']
+#     out_path_full = params['mix_out_6_1']
 
-    # List the molecular clusters (clusters with at least one neutral node)
-    cluster_list = []
-    print('Finding molecular clusters...')
-    for i in tqdm(node_table['cluster_id'].unique()):
-        if sum(node_table['status_universal'][node_table['cluster_id'] == i] == "neutral") > 0:
-            cluster_list.append(i)
-    cluster_list.sort()
+#     # List the molecular clusters (clusters with at least one neutral node)
+#     cluster_list = []
+#     print('Finding molecular clusters...')
+#     for i in tqdm(node_table['cluster_id'].unique()):
+#         if sum(node_table['status_universal'][node_table['cluster_id'] == i] == "neutral") > 0:
+#             cluster_list.append(i)
+#     cluster_list.sort()
 
-    # Cluster singletons and precursor ions in non-molecular clusters to ions in molecular clusters
-    unclustered_ions = [i for i in node_table.index if node_table.loc[i, "cluster_id"] not in cluster_list]
-    remains_ions = list(node_table.loc[unclustered_ions].index[node_table.loc[unclustered_ions]['status_universal'] == 'singleton'])
-    remains_ions +=  list(node_table.loc[unclustered_ions].index[node_table.loc[unclustered_ions]['status_universal'] == 'precursor'])
+#     # Cluster singletons and precursor ions in non-molecular clusters to ions in molecular clusters
+#     unclustered_ions = [i for i in node_table.index if node_table.loc[i, "cluster_id"] not in cluster_list]
+#     remains_ions = list(node_table.loc[unclustered_ions].index[node_table.loc[unclustered_ions]['status_universal'] == 'singleton'])
+#     remains_ions +=  list(node_table.loc[unclustered_ions].index[node_table.loc[unclustered_ions]['status_universal'] == 'precursor'])
 
-    # Get spec IDs for nodes
-    cluster_ion_list = pd.Series(index = cluster_list, dtype = str)
-    for i in cluster_ion_list.index:
-        tmp_rows = node_table.index[node_table['cluster_id'] == i]
-        cluster_ion_list[i] = '|'.join(node_table.loc[tmp_rows, 'spec_id'].dropna().astype(int).astype(str))
-    cluster_ion_list.sort_index(inplace = True)
+#     # Get spec IDs for nodes
+#     cluster_ion_list = pd.Series(index = cluster_list, dtype = str)
+#     for i in cluster_ion_list.index:
+#         tmp_rows = node_table.index[node_table['cluster_id'] == i]
+#         cluster_ion_list[i] = '|'.join(node_table.loc[tmp_rows, 'spec_id'].dropna().astype(int).astype(str))
+#     cluster_ion_list.sort_index(inplace = True)
 
-    if len(cluster_list) > 0 :
-        full_node_1 = []
-        full_node_2 = []
-        full_cluster_ids = []
-        full_cosine = []
-        full_matches = []
-        for i in tqdm(remains_ions):
-            i_id = int(node_table.loc[i, idx_column])
-            i_spectrum = mgf[mgf_data[i_id]]
-            tmp_cluster_list = []
-            tmp_id_list = []
-            tmp_cosine_list = []
-            tmp_prod_list = []
-            tmp_match_list = []
-            for j in cluster_ion_list.index:
-                ion_list = list(map(int, cluster_ion_list[j].split('|')))
-                cos_list = list()
-                match_list = list()
-                id_list = list()
-                prod_list = list()
-                for k in ion_list:
-                    score, n_matches = modified_cosine.pair(i_spectrum, mgf[k])
-                    id_list.append(int(mgf[k].get(idx_column)))
-                    cos_list.append(score)
-                    match_list.append(n_matches)
-                    prod_list.append(score * n_matches)
-                tmp_prod_list.append(max(prod_list))
-                tmp_cosine_list.append(cos_list[prod_list.index(max(prod_list))])
-                tmp_match_list.append(match_list[prod_list.index(max(prod_list))])
-                tmp_id_list.append(id_list[prod_list.index(max(prod_list))])
-                tmp_cluster_list.append(j)
-            tmp_table = pd.DataFrame(list(zip(tmp_id_list, tmp_cluster_list, tmp_cosine_list, tmp_prod_list, tmp_match_list)),
-                                     columns = [f'ion_{idx_column}', 'cluster_id', 'cosine', 'prod', 'matches'])
-            tmp_table = tmp_table.loc[tmp_table['prod'].idxmax()]
+#     if len(cluster_list) > 0 :
+#         full_node_1 = []
+#         full_node_2 = []
+#         full_cluster_ids = []
+#         full_cosine = []
+#         full_matches = []
+#         for i in tqdm(remains_ions):
+#             i_id = int(node_table.loc[i, idx_column])
+#             i_spectrum = mgf[mgf_data[i_id]]
+#             tmp_cluster_list = []
+#             tmp_id_list = []
+#             tmp_cosine_list = []
+#             tmp_prod_list = []
+#             tmp_match_list = []
+#             for j in cluster_ion_list.index:
+#                 ion_list = list(map(int, cluster_ion_list[j].split('|')))
+#                 cos_list = list()
+#                 match_list = list()
+#                 id_list = list()
+#                 prod_list = list()
+#                 for k in ion_list:
+#                     score, n_matches = modified_cosine.pair(i_spectrum, mgf[k])
+#                     id_list.append(int(mgf[k].get(idx_column)))
+#                     cos_list.append(score)
+#                     match_list.append(n_matches)
+#                     prod_list.append(score * n_matches)
+#                 tmp_prod_list.append(max(prod_list))
+#                 tmp_cosine_list.append(cos_list[prod_list.index(max(prod_list))])
+#                 tmp_match_list.append(match_list[prod_list.index(max(prod_list))])
+#                 tmp_id_list.append(id_list[prod_list.index(max(prod_list))])
+#                 tmp_cluster_list.append(j)
+#             tmp_table = pd.DataFrame(list(zip(tmp_id_list, tmp_cluster_list, tmp_cosine_list, tmp_prod_list, tmp_match_list)),
+#                                      columns = [f'ion_{idx_column}', 'cluster_id', 'cosine', 'prod', 'matches'])
+#             tmp_table = tmp_table.loc[tmp_table['prod'].idxmax()]
 
-            counter_feature_id = tmp_table[f'ion_{idx_column}']
-            counter_idx = node_table.index[node_table[idx_column] == counter_feature_id][0]
-            full_node_1.append(i)
-            full_node_2.append(counter_idx)
-            full_cluster_ids.append(tmp_table['cluster_id'])
-            full_cosine.append(round(tmp_table['cosine'], 2))
-            full_matches.append(tmp_table['matches'])
+#             counter_feature_id = tmp_table[f'ion_{idx_column}']
+#             counter_idx = node_table.index[node_table[idx_column] == counter_feature_id][0]
+#             full_node_1.append(i)
+#             full_node_2.append(counter_idx)
+#             full_cluster_ids.append(tmp_table['cluster_id'])
+#             full_cosine.append(round(tmp_table['cosine'], 2))
+#             full_matches.append(tmp_table['matches'])
 
-        cosine_table = pd.DataFrame()
-        cosine_table['node_1'] = full_node_1
-        cosine_table['node_2'] = full_node_2
-        cosine_table['cluster_id'] = full_cluster_ids
-        cosine_table['cosine'] = full_cosine
-        cosine_table['matches'] = full_matches
-        cosine_table = cosine_table[cosine_table['cosine'] >= cosiner_threshold]
-        cosine_table = cosine_table[cosine_table['matches'] >= matched_peaks]
+#         cosine_table = pd.DataFrame()
+#         cosine_table['node_1'] = full_node_1
+#         cosine_table['node_2'] = full_node_2
+#         cosine_table['cluster_id'] = full_cluster_ids
+#         cosine_table['cosine'] = full_cosine
+#         cosine_table['matches'] = full_matches
+#         cosine_table = cosine_table[cosine_table['cosine'] >= cosiner_threshold]
+#         cosine_table = cosine_table[cosine_table['matches'] >= matched_peaks]
 
-        edge_table['cosine_score'] = [0.0]*len(edge_table)
-        for i in tqdm(cosine_table.index):
-            cosined_ion = cosine_table.loc[i, "node_1"]
-            linked_ion = cosine_table.loc[i, "node_2"]
-            old_edge = edge_table.index[edge_table['node_1'] == cosined_ion][0]
-            if (edge_table.loc[old_edge, "status_universal"] == "self_edge") :
-                edge_table.drop(old_edge, inplace = True)
-            node_table.loc[cosined_ion, "status"] = node_table.loc[cosined_ion, "status"][:4] + "cossingleton"
-            node_table.loc[cosined_ion, "status_universal"] = "cossingleton"
-            node_table.loc[cosined_ion, "cluster_id"] = cosine_table.loc[i, "cluster_id"]
-            rt_gap = round(abs(node_table.loc[cosined_ion, rt_field] - node_table.loc[linked_ion, rt_field]),3)
-            mz_gap = round(abs(node_table.loc[cosined_ion, mz_field] - node_table.loc[linked_ion, mz_field]),4)
-            cosine_score = cosine_table.loc[i, "cosine"]
-            ion_mode = node_table.loc[cosined_ion, "ion_mode"]
-            n_matches = cosine_table.loc[i, "matches"]
-            new_edge = max(edge_table.index) + 1
-            edge_table.loc[new_edge] = [None]*len(edge_table.columns)
-            edge_table.loc[new_edge, ["node_1", "node_2", "matched_peaks", "total_peaks",
-                                      "matching_score", "rt_gap", "mz_gap", "status",
-                                      "status_universal", "All_annotations", "ion_mode",
-                                      "cosine_score"]] = [linked_ion, cosined_ion,
-                        n_matches, 0, 0, rt_gap, mz_gap, ion_mode.lower() + "_singcos_edge",
-                        "singcos_edge", cosine_score, ion_mode, cosine_score]
-        edge_table.reset_index(drop = True, inplace = True)
+#         edge_table['cosine_score'] = [0.0]*len(edge_table)
+#         for i in tqdm(cosine_table.index):
+#             cosined_ion = cosine_table.loc[i, "node_1"]
+#             linked_ion = cosine_table.loc[i, "node_2"]
+#             old_edge = edge_table.index[edge_table['node_1'] == cosined_ion][0]
+#             if (edge_table.loc[old_edge, "status_universal"] == "self_edge") :
+#                 edge_table.drop(old_edge, inplace = True)
+#             node_table.loc[cosined_ion, "status"] = node_table.loc[cosined_ion, "status"][:4] + "cossingleton"
+#             node_table.loc[cosined_ion, "status_universal"] = "cossingleton"
+#             node_table.loc[cosined_ion, "cluster_id"] = cosine_table.loc[i, "cluster_id"]
+#             rt_gap = round(abs(node_table.loc[cosined_ion, rt_field] - node_table.loc[linked_ion, rt_field]),3)
+#             mz_gap = round(abs(node_table.loc[cosined_ion, mz_field] - node_table.loc[linked_ion, mz_field]),4)
+#             cosine_score = cosine_table.loc[i, "cosine"]
+#             ion_mode = node_table.loc[cosined_ion, "ion_mode"]
+#             n_matches = cosine_table.loc[i, "matches"]
+#             new_edge = max(edge_table.index) + 1
+#             edge_table.loc[new_edge] = [None]*len(edge_table.columns)
+#             edge_table.loc[new_edge, ["node_1", "node_2", "matched_peaks", "total_peaks",
+#                                       "matching_score", "rt_gap", "mz_gap", "status",
+#                                       "status_universal", "All_annotations", "ion_mode",
+#                                       "cosine_score"]] = [linked_ion, cosined_ion,
+#                         n_matches, 0, 0, rt_gap, mz_gap, ion_mode.lower() + "_singcos_edge",
+#                         "singcos_edge", cosine_score, ion_mode, cosine_score]
+#         edge_table.reset_index(drop = True, inplace = True)
 
-        neutral_idx = list(node_table.index[node_table['status'].str.contains('neutral')])
-        for neutral in tqdm(neutral_idx):
-            tmp_edge_table = edge_table[edge_table['node_1'] == neutral]
-            node_2_list = list(tmp_edge_table['node_2'])
-            tmp_edges = []
-            while len(node_2_list) > 1 :
-                ion_1 = node_2_list[0]
-                ion_1_mgf_idx = int(node_table.loc[ion_1, "spec_id"])
-                ion_1_spectrum = mgf[ion_1_mgf_idx]
-                ion_1_rt = node_table.loc[ion_1, rt_field]
-                ion_1_mz = node_table.loc[ion_1, mz_field]
-                node_2_list.remove(ion_1)
-                for ion_2 in node_2_list:
-                    ion_2_mgf_idx = int(node_table.loc[ion_2, "spec_id"])
-                    ion_2_spectrum = mgf[ion_2_mgf_idx]
-                    ion_2_rt = node_table.loc[ion_2, rt_field]
-                    ion_2_mz = node_table.loc[ion_2, mz_field]
-                    rt_gap = round(ion_1_rt - ion_2_rt, 3)
-                    mz_gap = round(ion_1_mz - ion_2_mz, 4)
-                    score, n_matches = modified_cosine.pair(ion_1_spectrum, ion_2_spectrum)
-                    tmp_edges.append((ion_1, ion_2, round(score, 2), rt_gap, mz_gap, ion_mode.lower()))
-            for edge in tmp_edges:
-                node_1 = edge[0]
-                node_2 = edge[1]
-                cos = edge[2]
-                if cos < cosine_threshold : continue
-                rt_gap = edge[3]
-                mz_gap = edge[4]
-                tmp_ion_mode = edge[5]
-                new_idx = max(edge_table.index) + 1
-                edge_table.loc[new_idx] = [None]*len(edge_table.columns)
-                edge_table.loc[new_idx, ["node_1", "node_2", "matched_peaks",
-                                         "total_peaks", "matching_score", "rt_gap",
-                                         "mz_gap", "status", "status_universal",
-                                         "All_annotations", "ion_mode",
-                                         "cosine_score"]] = [node_1, node_2, 0, 0, 0,
-                                         rt_gap, mz_gap, tmp_ion_mode + "_cos_edge",
-                                         "cos_edge", cos, tmp_ion_mode.upper(), cos]
+#         neutral_idx = list(node_table.index[node_table['status'].str.contains('neutral')])
+#         for neutral in tqdm(neutral_idx):
+#             tmp_edge_table = edge_table[edge_table['node_1'] == neutral]
+#             node_2_list = list(tmp_edge_table['node_2'])
+#             tmp_edges = []
+#             while len(node_2_list) > 1 :
+#                 ion_1 = node_2_list[0]
+#                 ion_1_mgf_idx = int(node_table.loc[ion_1, "spec_id"])
+#                 ion_1_spectrum = mgf[ion_1_mgf_idx]
+#                 ion_1_rt = node_table.loc[ion_1, rt_field]
+#                 ion_1_mz = node_table.loc[ion_1, mz_field]
+#                 node_2_list.remove(ion_1)
+#                 for ion_2 in node_2_list:
+#                     ion_2_mgf_idx = int(node_table.loc[ion_2, "spec_id"])
+#                     ion_2_spectrum = mgf[ion_2_mgf_idx]
+#                     ion_2_rt = node_table.loc[ion_2, rt_field]
+#                     ion_2_mz = node_table.loc[ion_2, mz_field]
+#                     rt_gap = round(ion_1_rt - ion_2_rt, 3)
+#                     mz_gap = round(ion_1_mz - ion_2_mz, 4)
+#                     score, n_matches = modified_cosine.pair(ion_1_spectrum, ion_2_spectrum)
+#                     tmp_edges.append((ion_1, ion_2, round(score, 2), rt_gap, mz_gap, ion_mode.lower()))
+#             for edge in tmp_edges:
+#                 node_1 = edge[0]
+#                 node_2 = edge[1]
+#                 cos = edge[2]
+#                 if cos < cosine_threshold : continue
+#                 rt_gap = edge[3]
+#                 mz_gap = edge[4]
+#                 tmp_ion_mode = edge[5]
+#                 new_idx = max(edge_table.index) + 1
+#                 edge_table.loc[new_idx] = [None]*len(edge_table.columns)
+#                 edge_table.loc[new_idx, ["node_1", "node_2", "matched_peaks",
+#                                          "total_peaks", "matching_score", "rt_gap",
+#                                          "mz_gap", "status", "status_universal",
+#                                          "All_annotations", "ion_mode",
+#                                          "cosine_score"]] = [node_1, node_2, 0, 0, 0,
+#                                          rt_gap, mz_gap, tmp_ion_mode + "_cos_edge",
+#                                          "cos_edge", cos, tmp_ion_mode.upper(), cos]
 
-    # Produce cosine clusters between singletons and non-molecular clustered precursors/fragments
-    non_molecular_clusters = list(set(node_table['cluster_id'].unique()) - set(cluster_list))
-    non_molecular_clusters.sort()
-    unclustered_ions = [i for i in node_table.index if node_table.loc[i, "cluster_id"] in non_molecular_clusters]
-    remains_ions = list(node_table.loc[unclustered_ions].index[node_table.loc[unclustered_ions]['status_universal'] == 'singleton'])
-    remains_ions +=  list(node_table.loc[unclustered_ions].index[node_table.loc[unclustered_ions]['status_universal'] == 'precursor'])
-    remains_ions_mgf = [node_table.loc[i, "spec_id"] for i in remains_ions] 
-    remains_ions_mgf = list(map(int, remains_ions_mgf))
+#     # Produce cosine clusters between singletons and non-molecular clustered precursors/fragments
+#     non_molecular_clusters = list(set(node_table['cluster_id'].unique()) - set(cluster_list))
+#     non_molecular_clusters.sort()
+#     unclustered_ions = [i for i in node_table.index if node_table.loc[i, "cluster_id"] in non_molecular_clusters]
+#     remains_ions = list(node_table.loc[unclustered_ions].index[node_table.loc[unclustered_ions]['status_universal'] == 'singleton'])
+#     remains_ions +=  list(node_table.loc[unclustered_ions].index[node_table.loc[unclustered_ions]['status_universal'] == 'precursor'])
+#     remains_ions_mgf = [node_table.loc[i, "spec_id"] for i in remains_ions] 
+#     remains_ions_mgf = list(map(int, remains_ions_mgf))
 
-    # Process data:
-    singleton_clusters = list()
-    total_nodes = len(remains_ions)
-    while len(remains_ions) > 0 :
-        perc = round((1-(len(remains_ions)/total_nodes))*100,1)
-        sys.stdout.write("\rClustering remaining singletons : {0}%".format(perc))
-        sys.stdout.flush()
-        ion_i = remains_ions[0]
-        ion_i_mgf = remains_ions_mgf[0]
-        remains_ions.remove(ion_i)
-        remains_ions_mgf.remove(ion_i_mgf)
-        for ion_j in remains_ions:
-            ion_j_mgf = remains_ions_mgf[remains_ions.index(ion_j)]
-            score, n_matches = modified_cosine.pair(mgf[ion_i_mgf], mgf[ion_j_mgf])
-            singleton_clusters.append((ion_i, ion_j, score, n_matches, ion_mode))
+#     # Process data:
+#     singleton_clusters = list()
+#     total_nodes = len(remains_ions)
+#     while len(remains_ions) > 0 :
+#         perc = round((1-(len(remains_ions)/total_nodes))*100,1)
+#         sys.stdout.write("\rClustering remaining singletons : {0}%".format(perc))
+#         sys.stdout.flush()
+#         ion_i = remains_ions[0]
+#         ion_i_mgf = remains_ions_mgf[0]
+#         remains_ions.remove(ion_i)
+#         remains_ions_mgf.remove(ion_i_mgf)
+#         for ion_j in remains_ions:
+#             ion_j_mgf = remains_ions_mgf[remains_ions.index(ion_j)]
+#             score, n_matches = modified_cosine.pair(mgf[ion_i_mgf], mgf[ion_j_mgf])
+#             singleton_clusters.append((ion_i, ion_j, score, n_matches, ion_mode))
 
-    singleton_clusters = pd.DataFrame(singleton_clusters, columns = ['node_1', 'node_2', 'cos', 'matches', 'ion_mode'])
-    singleton_clusters = singleton_clusters[singleton_clusters['cos'] >= cosiner_threshold]
-    singleton_clusters = singleton_clusters[singleton_clusters['matches'] >= matched_peaks]
+#     singleton_clusters = pd.DataFrame(singleton_clusters, columns = ['node_1', 'node_2', 'cos', 'matches', 'ion_mode'])
+#     singleton_clusters = singleton_clusters[singleton_clusters['cos'] >= cosiner_threshold]
+#     singleton_clusters = singleton_clusters[singleton_clusters['matches'] >= matched_peaks]
                                                          
-    # Define the new clusters
-    node_pool = singleton_clusters['node_1'].tolist() + singleton_clusters['node_2'].tolist()
-    node_pool = list(set(node_pool))
-    node_pool.sort()
-    cluster_list = []
-    cluster_size_list = []
-    total_nodes = len(node_pool)
-    while len(node_pool) > 0:
-        new_cluster = [node_pool[0]]
-        cluster_size = 0
-        perc = round((1-(len(node_pool)/total_nodes))*100,1)
-        sys.stdout.write("\rDefining cosine singleton clusters : {0}%".format(perc))
-        sys.stdout.flush()
-        while cluster_size != len(new_cluster):
-            cluster_size = len(new_cluster)
-            tmp_idx = []
-            for i in new_cluster:
-                tmp_idx += list(singleton_clusters.index[singleton_clusters['node_1'] == i])
-                tmp_idx += list(singleton_clusters.index[singleton_clusters['node_2'] == i])
-            new_cluster += list(singleton_clusters.loc[tmp_idx, 'node_1'])
-            new_cluster += list(singleton_clusters.loc[tmp_idx, 'node_2'])
-            new_cluster = list(set(new_cluster))
-        new_cluster.sort()
-        node_pool = list(set(node_pool) - set(new_cluster))
-        cluster_size_list.append(len(new_cluster))
-        cluster_list.append('|'.join(list(map(str, new_cluster))))
+#     # Define the new clusters
+#     node_pool = singleton_clusters['node_1'].tolist() + singleton_clusters['node_2'].tolist()
+#     node_pool = list(set(node_pool))
+#     node_pool.sort()
+#     cluster_list = []
+#     cluster_size_list = []
+#     total_nodes = len(node_pool)
+#     while len(node_pool) > 0:
+#         new_cluster = [node_pool[0]]
+#         cluster_size = 0
+#         perc = round((1-(len(node_pool)/total_nodes))*100,1)
+#         sys.stdout.write("\rDefining cosine singleton clusters : {0}%".format(perc))
+#         sys.stdout.flush()
+#         while cluster_size != len(new_cluster):
+#             cluster_size = len(new_cluster)
+#             tmp_idx = []
+#             for i in new_cluster:
+#                 tmp_idx += list(singleton_clusters.index[singleton_clusters['node_1'] == i])
+#                 tmp_idx += list(singleton_clusters.index[singleton_clusters['node_2'] == i])
+#             new_cluster += list(singleton_clusters.loc[tmp_idx, 'node_1'])
+#             new_cluster += list(singleton_clusters.loc[tmp_idx, 'node_2'])
+#             new_cluster = list(set(new_cluster))
+#         new_cluster.sort()
+#         node_pool = list(set(node_pool) - set(new_cluster))
+#         cluster_size_list.append(len(new_cluster))
+#         cluster_list.append('|'.join(list(map(str, new_cluster))))
 
-    cluster_table= pd.DataFrame()
-    cluster_table['cluster'] = cluster_list
-    cluster_table['cluster_size'] = cluster_size_list
-    cluster_table.sort_values('cluster_size', ascending = False, inplace = True)
-    cluster_table.reset_index(drop = True, inplace = True)
-    cluster_table.set_index(cluster_table.index + (int(node_table['cluster_id'].max()) + 1), drop = True, inplace = True)
+#     cluster_table= pd.DataFrame()
+#     cluster_table['cluster'] = cluster_list
+#     cluster_table['cluster_size'] = cluster_size_list
+#     cluster_table.sort_values('cluster_size', ascending = False, inplace = True)
+#     cluster_table.reset_index(drop = True, inplace = True)
+#     cluster_table.set_index(cluster_table.index + (int(node_table['cluster_id'].max()) + 1), drop = True, inplace = True)
 
-    # Report the new data to the edge table:
-    print('Reporting cosined singletons to edge table...')
-    for i in tqdm(singleton_clusters.index):
-        new_edge = edge_table.index.max() + 1
-        node_1 = singleton_clusters.loc[i, "node_1"]
-        node_2 = singleton_clusters.loc[i, "node_2"]
-        del_edge_1 = edge_table[edge_table['node_1'] == node_1]
-        del_edge_1 = del_edge_1.index[del_edge_1['node_2'] == node_1]
-        del_edge_2 = edge_table[edge_table['node_1'] == node_2]
-        del_edge_2 = del_edge_2.index[del_edge_2['node_2'] == node_2]
-        if len(del_edge_1) > 0 :
-            edge_table.drop(del_edge_1[0], inplace = True)
-        if len(del_edge_2) > 0 :
-            edge_table.drop(del_edge_2[0], inplace = True)
-        tmp_cos = round(singleton_clusters.loc[i, "cos"],2)
-        tmp_matches = singleton_clusters.loc[i, "matches"]
-        tmp_mode = singleton_clusters.loc[i, "ion_mode"]
-        rt_gap = abs(node_table.loc[node_1, rt_field] - node_table.loc[node_2, rt_field])
-        mz_gap = abs(node_table.loc[node_1, mz_field] - node_table.loc[node_2, mz_field])
-        edge_table.loc[new_edge] = [None]*len(edge_table.columns)
-        edge_table.loc[new_edge, ["node_1", "node_2", "matched_peaks",
-                                 "total_peaks", "matching_score", "rt_gap",
-                                 "mz_gap", "status", "status_universal",
-                                 "All_annotations", "ion_mode",
-                                 "cosine_score"]] = [node_1, node_2, tmp_matches,
-                                 0, 0.0, rt_gap, mz_gap, tmp_mode.lower() + '_singcos_edge',
-                                 'cosine_edge', tmp_cos, tmp_mode, tmp_cos]
+#     # Report the new data to the edge table:
+#     print('Reporting cosined singletons to edge table...')
+#     for i in tqdm(singleton_clusters.index):
+#         new_edge = edge_table.index.max() + 1
+#         node_1 = singleton_clusters.loc[i, "node_1"]
+#         node_2 = singleton_clusters.loc[i, "node_2"]
+#         del_edge_1 = edge_table[edge_table['node_1'] == node_1]
+#         del_edge_1 = del_edge_1.index[del_edge_1['node_2'] == node_1]
+#         del_edge_2 = edge_table[edge_table['node_1'] == node_2]
+#         del_edge_2 = del_edge_2.index[del_edge_2['node_2'] == node_2]
+#         if len(del_edge_1) > 0 :
+#             edge_table.drop(del_edge_1[0], inplace = True)
+#         if len(del_edge_2) > 0 :
+#             edge_table.drop(del_edge_2[0], inplace = True)
+#         tmp_cos = round(singleton_clusters.loc[i, "cos"],2)
+#         tmp_matches = singleton_clusters.loc[i, "matches"]
+#         tmp_mode = singleton_clusters.loc[i, "ion_mode"]
+#         rt_gap = abs(node_table.loc[node_1, rt_field] - node_table.loc[node_2, rt_field])
+#         mz_gap = abs(node_table.loc[node_1, mz_field] - node_table.loc[node_2, mz_field])
+#         edge_table.loc[new_edge] = [None]*len(edge_table.columns)
+#         edge_table.loc[new_edge, ["node_1", "node_2", "matched_peaks",
+#                                  "total_peaks", "matching_score", "rt_gap",
+#                                  "mz_gap", "status", "status_universal",
+#                                  "All_annotations", "ion_mode",
+#                                  "cosine_score"]] = [node_1, node_2, tmp_matches,
+#                                  0, 0.0, rt_gap, mz_gap, tmp_mode.lower() + '_singcos_edge',
+#                                  'cosine_edge', tmp_cos, tmp_mode, tmp_cos]
 
-    # Report the new data to the node table:
-    print('Reporting cosined singletons to node table...')
-    for i in tqdm(cluster_table.index):
-        node_list = list(map(int, cluster_table.loc[i, "cluster"].split('|')))
-        tmp_mode = node_table.loc[node_list[0], 'ion_mode']
-        for j in node_list:
-            node_table.loc[j, "status"] = tmp_mode.lower() + "_cossingleton"
-            node_table.loc[j, "status_universal"] = "cossingleton"
-            node_table.loc[j, "cluster_id"] = i
+#     # Report the new data to the node table:
+#     print('Reporting cosined singletons to node table...')
+#     for i in tqdm(cluster_table.index):
+#         node_list = list(map(int, cluster_table.loc[i, "cluster"].split('|')))
+#         tmp_mode = node_table.loc[node_list[0], 'ion_mode']
+#         for j in node_list:
+#             node_table.loc[j, "status"] = tmp_mode.lower() + "_cossingleton"
+#             node_table.loc[j, "status_universal"] = "cossingleton"
+#             node_table.loc[j, "cluster_id"] = i
 
-    if params['c_purge_empty_spectra'] :
-        node_table, edge_table = Spectrum_purge(ion_mode = ion_mode, node_table = node_table, edge_table = edge_table, mgf_file = mgf)
+#     if params['c_purge_empty_spectra'] :
+#         node_table, edge_table = Spectrum_purge(ion_mode = ion_mode, node_table = node_table, edge_table = edge_table, mgf_file = mgf)
 
-    node_table[mz_field] = node_table[mz_field].round(4)
-    node_table[rt_field] =  node_table[rt_field].round(3)
-    edge_table['rt_gap'] = edge_table['rt_gap'].round(3)
-    edge_table['mz_gap'] = edge_table['mz_gap'].round(4)
-    edge_table['cosine_score'] = edge_table['cosine_score'].round(2)
+#     node_table[mz_field] = node_table[mz_field].round(4)
+#     node_table[rt_field] =  node_table[rt_field].round(3)
+#     edge_table['rt_gap'] = edge_table['rt_gap'].round(3)
+#     edge_table['mz_gap'] = edge_table['mz_gap'].round(4)
+#     edge_table['cosine_score'] = edge_table['cosine_score'].round(2)
                                                      
-    # Export data
-    node_table.to_csv(out_path_full + 'node_table.csv', index_label = "Index")
-    edge_table.to_csv(out_path_full + 'edge_table.csv', index_label = "Index")
+#     # Export data
+#     node_table.to_csv(out_path_full + 'node_table.csv', index_label = "Index")
+#     edge_table.to_csv(out_path_full + 'edge_table.csv', index_label = "Index")
 
-    if params['c_export_samples'] : 
-        samplewise_export(merged_edge_table = edge_table,
-                          merged_node_table = node_table,
-                          step = "cosiner",
-                          ion_mode = ion_mode,
-                          params = params)
-    return
+#     if params['c_export_samples'] : 
+#         samplewise_export(merged_edge_table = edge_table,
+#                           merged_node_table = node_table,
+#                           step = "cosiner",
+#                           ion_mode = ion_mode,
+#                           params = params)
+#     return
 
 def Spectrum_purge(ion_mode, node_table, edge_table, mgf_file) :
     singletons = node_table.index[node_table['status'] == ion_mode.lower() + "_singleton"].tolist()
@@ -3214,102 +3345,102 @@ def Spectrum_purge(ion_mode, node_table, edge_table, mgf_file) :
     return node_table, edge_table
 
 ############################################################## molnet functions
-def molnet_single(node_table, edge_table, mgf, ion_mode, params):
+# def molnet_single(node_table, edge_table, mgf, ion_mode, params):
     
-    mass_error= params['mn_mass_error']
-    mz_field = params['mz_field']
-    rt_field = params['rt_field']
-    matched_peaks= params['mn_matched_peaks']
-    modified_cosine = ModifiedCosine(tolerance=mass_error)
-    cosine_threshold = params['mn_cosine_threshold']
-    out_path_full = params['mix_out_7_1']
+#     mass_error= params['mn_mass_error']
+#     mz_field = params['mz_field']
+#     rt_field = params['rt_field']
+#     matched_peaks= params['mn_matched_peaks']
+#     modified_cosine = ModifiedCosine(tolerance=mass_error)
+#     cosine_threshold = params['mn_cosine_threshold']
+#     out_path_full = params['mix_out_7_1']
     
-    # Do molecular families clusters:
-    neutral_nodes = list(node_table.index[node_table['status'].str.contains('neutral')])
-    neutral_nodes_2 = neutral_nodes.copy()
-    neutral_edges_list = []
-    total_neutrals = len(neutral_nodes)
-    while len(neutral_nodes) > 1 :
-        perc = round((1-(len(neutral_nodes)/total_neutrals))*100,1)
-        sys.stdout.write("\rLinking neutrals : {0}%".format(perc))
-        sys.stdout.flush()
-        neutral_1 = neutral_nodes[0]
-        adducts_1 = pd.DataFrame(index = list(edge_table['node_2'][edge_table['node_1'] == neutral_1]))
-        adducts_1['spec_id'] = list(node_table.loc[adducts_1.index, "spec_id"].astype(int))
-        adducts_1['ion_mode'] = list(node_table.loc[adducts_1.index, "ion_mode"])
-        adducts_1['adduct'] = list(node_table.loc[adducts_1.index, "Adnotation"])
-        neutral_nodes.remove(neutral_1)
-        for neutral_2 in neutral_nodes:
-            #neutral_2 = neutral_nodes[1]
-            tmp_scores = list()
-            adducts_2 = pd.DataFrame(index = list(edge_table['node_2'][edge_table['node_1'] == neutral_2]))
-            adducts_2['spec_id'] = list(node_table.loc[adducts_2.index, "spec_id"].astype(int))
-            adducts_2['ion_mode'] = list(node_table.loc[adducts_2.index, "ion_mode"])
-            adducts_2['adduct'] = list(node_table.loc[adducts_2.index, "Adnotation"])
-            for mode in adducts_1['ion_mode'].unique():
-                #mode = adducts_1['ion_mode'].unique()[0]
-                tmp_table_1 = adducts_1[adducts_1['ion_mode'] == mode]
-                tmp_table_2 = adducts_2[adducts_2['ion_mode'] == mode]
-                for ion_1 in tmp_table_1.index:
-                    spectrum_1 = mgf[tmp_table_1.loc[ion_1, "spec_id"]]
-                    adduct_1 = tmp_table_1.loc[ion_1, 'adduct']
-                    for ion_2 in tmp_table_2.index:
-                        adduct_2 = tmp_table_2.loc[ion_2, 'adduct']
-                        if adduct_1 != adduct_2 : continue
-                        spectrum_2 = mgf[tmp_table_2.loc[ion_2, "spec_id"]]
-                        score, n_matches = modified_cosine.pair(spectrum_1, spectrum_2)
-                        if n_matches < matched_peaks : score = 0.0
-                        tmp_scores.append((score, n_matches))
-            tmp_scores = pd.DataFrame(tmp_scores, columns = ['cos', 'matches'])
-            if len(tmp_scores) == 0 : continue
-            if tmp_scores['cos'].max() >= cosine_threshold : 
-                tmp_scores.sort_values(by = ['cos', 'matches'], ascending = False, inplace = True)
-                neutral_edges_list.append((neutral_1, neutral_2, round(tmp_scores['cos'].iloc[0],2), tmp_scores['matches'].iloc[0]))
+#     # Do molecular families clusters:
+#     neutral_nodes = list(node_table.index[node_table['status'].str.contains('neutral')])
+#     neutral_nodes_2 = neutral_nodes.copy()
+#     neutral_edges_list = []
+#     total_neutrals = len(neutral_nodes)
+#     while len(neutral_nodes) > 1 :
+#         perc = round((1-(len(neutral_nodes)/total_neutrals))*100,1)
+#         sys.stdout.write("\rLinking neutrals : {0}%".format(perc))
+#         sys.stdout.flush()
+#         neutral_1 = neutral_nodes[0]
+#         adducts_1 = pd.DataFrame(index = list(edge_table['node_2'][edge_table['node_1'] == neutral_1]))
+#         adducts_1['spec_id'] = list(node_table.loc[adducts_1.index, "spec_id"].astype(int))
+#         adducts_1['ion_mode'] = list(node_table.loc[adducts_1.index, "ion_mode"])
+#         adducts_1['adduct'] = list(node_table.loc[adducts_1.index, "Adnotation"])
+#         neutral_nodes.remove(neutral_1)
+#         for neutral_2 in neutral_nodes:
+#             #neutral_2 = neutral_nodes[1]
+#             tmp_scores = list()
+#             adducts_2 = pd.DataFrame(index = list(edge_table['node_2'][edge_table['node_1'] == neutral_2]))
+#             adducts_2['spec_id'] = list(node_table.loc[adducts_2.index, "spec_id"].astype(int))
+#             adducts_2['ion_mode'] = list(node_table.loc[adducts_2.index, "ion_mode"])
+#             adducts_2['adduct'] = list(node_table.loc[adducts_2.index, "Adnotation"])
+#             for mode in adducts_1['ion_mode'].unique():
+#                 #mode = adducts_1['ion_mode'].unique()[0]
+#                 tmp_table_1 = adducts_1[adducts_1['ion_mode'] == mode]
+#                 tmp_table_2 = adducts_2[adducts_2['ion_mode'] == mode]
+#                 for ion_1 in tmp_table_1.index:
+#                     spectrum_1 = mgf[tmp_table_1.loc[ion_1, "spec_id"]]
+#                     adduct_1 = tmp_table_1.loc[ion_1, 'adduct']
+#                     for ion_2 in tmp_table_2.index:
+#                         adduct_2 = tmp_table_2.loc[ion_2, 'adduct']
+#                         if adduct_1 != adduct_2 : continue
+#                         spectrum_2 = mgf[tmp_table_2.loc[ion_2, "spec_id"]]
+#                         score, n_matches = modified_cosine.pair(spectrum_1, spectrum_2)
+#                         if n_matches < matched_peaks : score = 0.0
+#                         tmp_scores.append((score, n_matches))
+#             tmp_scores = pd.DataFrame(tmp_scores, columns = ['cos', 'matches'])
+#             if len(tmp_scores) == 0 : continue
+#             if tmp_scores['cos'].max() >= cosine_threshold : 
+#                 tmp_scores.sort_values(by = ['cos', 'matches'], ascending = False, inplace = True)
+#                 neutral_edges_list.append((neutral_1, neutral_2, round(tmp_scores['cos'].iloc[0],2), tmp_scores['matches'].iloc[0]))
 
-    # Add neutral_edges:
-    print("Adding neutral edges...")
-    for i in tqdm(range(len(neutral_edges_list))):
-        new_idx = max(edge_table.index) + 1
-        node_1 = neutral_edges_list[i][0]
-        node_2 = neutral_edges_list[i][1]
-        cos = round(neutral_edges_list[i][2], 2)
-        matches = neutral_edges_list[i][3]
-        rt_gap = abs(round(node_table.loc[node_1, rt_field] - node_table.loc[node_2, rt_field], 3))
-        mz_gap = abs(round(node_table.loc[node_1, mz_field] - node_table.loc[node_2, mz_field], 4))
-        edge_table.loc[new_idx] = [None]*len(edge_table.columns)
-        edge_table.loc[new_idx, ["node_1", "node_2", "matched_peaks", "total_peaks",
-                                 "matching_score", "rt_gap", "mz_gap", "status",
-                                 "status_universal", "All_annotations", "ion_mode",
-                                 "cosine_score"]] = [node_1, node_2, matches, 0, 0.0, rt_gap, mz_gap,
-                      ion_mode + "_cosine_neutral_edge", "cosine_neutral_edge", cos, ion_mode, cos]
+#     # Add neutral_edges:
+#     print("Adding neutral edges...")
+#     for i in tqdm(range(len(neutral_edges_list))):
+#         new_idx = max(edge_table.index) + 1
+#         node_1 = neutral_edges_list[i][0]
+#         node_2 = neutral_edges_list[i][1]
+#         cos = round(neutral_edges_list[i][2], 2)
+#         matches = neutral_edges_list[i][3]
+#         rt_gap = abs(round(node_table.loc[node_1, rt_field] - node_table.loc[node_2, rt_field], 3))
+#         mz_gap = abs(round(node_table.loc[node_1, mz_field] - node_table.loc[node_2, mz_field], 4))
+#         edge_table.loc[new_idx] = [None]*len(edge_table.columns)
+#         edge_table.loc[new_idx, ["node_1", "node_2", "matched_peaks", "total_peaks",
+#                                  "matching_score", "rt_gap", "mz_gap", "status",
+#                                  "status_universal", "All_annotations", "ion_mode",
+#                                  "cosine_score"]] = [node_1, node_2, matches, 0, 0.0, rt_gap, mz_gap,
+#                       ion_mode + "_cosine_neutral_edge", "cosine_neutral_edge", cos, ion_mode, cos]
 
-    # Delete undesired edges
-    edge_table = edge_table[edge_table['status'].str.contains('cosine_neutral_edge')]
+#     # Delete undesired edges
+#     edge_table = edge_table[edge_table['status'].str.contains('cosine_neutral_edge')]
     
-    kept_nodes = list(set(list(edge_table['node_1']) + list(edge_table['node_2'])))
-    kept_nodes.sort()
+#     kept_nodes = list(set(list(edge_table['node_1']) + list(edge_table['node_2'])))
+#     kept_nodes.sort()
     
-    # Add singletons:
-    singletons = list(set(neutral_nodes_2) - set(kept_nodes))
-    for neutral in tqdm(singletons):
-        new_idx = max(edge_table.index) + 1 
-        ion_mode = node_table.loc[neutral, "ion_mode"]
-        edge_table.loc[new_idx] = [None]*len(edge_table.columns)
-        edge_table.loc[new_idx, ["node_1", "node_2", "matched_peaks", "total_peaks",
-                                 "matching_score", "rt_gap", "mz_gap", "status",
-                                 "status_universal", "All_annotations", "ion_mode",
-                                 "cosine_score"]] = [neutral, neutral, 0, 0, 0.0, 0.0, 0.0,
-                      ion_mode + "_self_edge", "self_edge", 0.0, ion_mode, 0.0]
+#     # Add singletons:
+#     singletons = list(set(neutral_nodes_2) - set(kept_nodes))
+#     for neutral in tqdm(singletons):
+#         new_idx = max(edge_table.index) + 1 
+#         ion_mode = node_table.loc[neutral, "ion_mode"]
+#         edge_table.loc[new_idx] = [None]*len(edge_table.columns)
+#         edge_table.loc[new_idx, ["node_1", "node_2", "matched_peaks", "total_peaks",
+#                                  "matching_score", "rt_gap", "mz_gap", "status",
+#                                  "status_universal", "All_annotations", "ion_mode",
+#                                  "cosine_score"]] = [neutral, neutral, 0, 0, 0.0, 0.0, 0.0,
+#                       ion_mode + "_self_edge", "self_edge", 0.0, ion_mode, 0.0]
     
-    kept_nodes = list(set(list(edge_table['node_1']) + list(edge_table['node_2'])))
-    kept_nodes.sort()
-    node_table = node_table.loc[kept_nodes]
+#     kept_nodes = list(set(list(edge_table['node_1']) + list(edge_table['node_2'])))
+#     kept_nodes.sort()
+#     node_table = node_table.loc[kept_nodes]
     
-    node_table[mz_field] = node_table[mz_field].round(4)
+#     node_table[mz_field] = node_table[mz_field].round(4)
     
-    node_table.to_csv(out_path_full + "node_table_families.csv", index_label = "Index")
-    edge_table.to_csv(out_path_full + "edge_table_families.csv", index_label = "Index")
-    return
+#     node_table.to_csv(out_path_full + "node_table_families.csv", index_label = "Index")
+#     edge_table.to_csv(out_path_full + "edge_table_families.csv", index_label = "Index")
+#     return
                                                      
                                                      
 #################################################### Sample export functions
