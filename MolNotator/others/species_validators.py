@@ -1,5 +1,4 @@
 import numpy as np
-from MolNotator.others.global_functions import ion_mass_calculator
 
 class Species_validator:
     def __init__(self, mass_error):
