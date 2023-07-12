@@ -40,11 +40,13 @@ def find_duplicates_pairs(duplicates_table, node_table, spectrum_list, mass_erro
     cos_list = list()
     droppable_ion = list()
     for i, j in pairs:
-        score, matches = spectrum_cosine_score(spectrum_list.spectrum[node_table.at[i, "spec_id"]],
-                                               spectrum_list.spectrum[node_table.at[j, "spec_id"]],
+        spec_id_1 = node_table.at[node_table.index[i], 'spec_id']
+        spec_id_2 = node_table.at[node_table.index[j], 'spec_id']
+        score, matches = spectrum_cosine_score(spectrum_list.spectrum[spec_id_1],
+                                               spectrum_list.spectrum[spec_id_2],
                                                tolerance = mass_error)
         cos_list.append(score)
-        droppable_ion.append(node_table.loc[[i,j], "TIC"].idxmin())
+        droppable_ion.append(node_table.loc[[node_table.index[i],node_table.index[j]], "TIC"].idxmin())
         
     duplicates_table["score"] = cos_list
     duplicates_table["dropped"] = droppable_ion
@@ -62,8 +64,9 @@ def find_complex_duplicates(duplicates_table, node_table, spectrum_list, mass_er
                                  spectrum_list = spectrum_list,
                                  mass_error = mass_error)
         ion_pool = list(set(cos_table['ion_1'].tolist() + cos_table['ion_2'].tolist()))
+        ion_pool.sort()
         while len(ion_pool) > 0 :
-            ion_seed = node_table.loc[ion_pool, 'TIC'].idxmax()
+            ion_seed = node_table.loc[node_table.index[ion_pool], 'TIC'].idxmax()
             ion_pool.remove(ion_seed)
             
             duplicates = cos_table.index[cos_table['ion_1'] == ion_seed].tolist() + cos_table.index[cos_table['ion_2'] == ion_seed].tolist()
@@ -153,5 +156,6 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
     
     # Return the list of dropped indices
     duplicates_idx.sort()
+    duplicates_idx = node_table.index[duplicates_idx]
     return duplicates_idx
     
