@@ -3,21 +3,20 @@ import pandas as pd
 from MolNotator.utils import spectrum_cosine_score
 from sklearn.neighbors import KDTree
 
-
 # Define a function that performs operations on each ion
-def compare_ions(ion_pool, spectrum_list, mass_error):
+def compare_ions(ion_pool, spectrum_list, mass_error, node_table):
     
     
     # Start doing a cosine comparison between duplicates
     cos_table = list()
     while len(ion_pool) > 1 :
         ion_1 = ion_pool[0]
-        spectrum_1 = spectrum_list.spectrum[ion_1]
+        spectrum_1 = spectrum_list.spectrum[node_table.at[ion_1, 'spec_id']]
         rt_1 = spectrum_1.rt
         mz_1 = spectrum_1.prec_mz
         ion_pool.remove(ion_1)
         for ion_2 in ion_pool:
-            spectrum_2 = spectrum_list.spectrum[ion_2]
+            spectrum_2 = spectrum_list.spectrum[node_table.at[ion_2, 'spec_id']]
             rt_2 = spectrum_2.rt
             mz_2 = spectrum_2.prec_mz
             score, matches = spectrum_cosine_score(spectrum_1,
@@ -35,18 +34,18 @@ def compare_ions(ion_pool, spectrum_list, mass_error):
     return cos_table
 
 def find_duplicates_pairs(duplicates_table, node_table, spectrum_list, mass_error, cos_threshold):
-    duplicates_table = duplicates_table[duplicates_table['count'] == 2].copy()
+    duplicates_table = duplicates_table[duplicates_table['length'] == 2].copy()
     pairs = duplicates_table['pool'].tolist()
     cos_list = list()
     droppable_ion = list()
     for i, j in pairs:
-        spec_id_1 = node_table.at[node_table.index[i], 'spec_id']
-        spec_id_2 = node_table.at[node_table.index[j], 'spec_id']
+        spec_id_1 = node_table.at[i, 'spec_id']
+        spec_id_2 = node_table.at[j, 'spec_id']
         score, matches = spectrum_cosine_score(spectrum_list.spectrum[spec_id_1],
                                                spectrum_list.spectrum[spec_id_2],
                                                tolerance = mass_error)
         cos_list.append(score)
-        droppable_ion.append(node_table.loc[[node_table.index[i],node_table.index[j]], "TIC"].idxmin())
+        droppable_ion.append(node_table.loc[[i,j], "TIC"].idxmin())
         
     duplicates_table["score"] = cos_list
     duplicates_table["dropped"] = droppable_ion
@@ -57,16 +56,17 @@ def find_duplicates_pairs(duplicates_table, node_table, spectrum_list, mass_erro
     return dropped_idx
 
 def find_complex_duplicates(duplicates_table, node_table, spectrum_list, mass_error, cos_threshold):
-    duplicates_table = duplicates_table[duplicates_table['count'] > 2].copy()
+    duplicates_table = duplicates_table[duplicates_table['length'] > 2].copy()
     dropped_ions = list()
     for i in duplicates_table.index:
         cos_table = compare_ions(ion_pool = list(duplicates_table.at[i, "pool"]),
                                  spectrum_list = spectrum_list,
-                                 mass_error = mass_error)
+                                 mass_error = mass_error,
+                                 node_table = node_table)
         ion_pool = list(set(cos_table['ion_1'].tolist() + cos_table['ion_2'].tolist()))
         ion_pool.sort()
         while len(ion_pool) > 0 :
-            ion_seed = node_table.loc[node_table.index[ion_pool], 'TIC'].idxmax()
+            ion_seed = node_table.loc[ion_pool, 'TIC'].idxmax()
             ion_pool.remove(ion_seed)
             
             duplicates = cos_table.index[cos_table['ion_1'] == ion_seed].tolist() + cos_table.index[cos_table['ion_2'] == ion_seed].tolist()
@@ -129,17 +129,36 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
     mz_inds = mz_tree.query_radius(node_table[[mz_field]].values, r=mass_error)
     
     duplicates_table = list()
-    duplicates_idx = list()
     
     for rt_neighbors, mz_neighbors in zip(rt_inds, mz_inds):
         # Find ions that are neighbors in both dimensions
-        duplicate_ions = tuple(set(rt_neighbors).intersection(set(mz_neighbors)))
+        duplicate_ions = list(set(rt_neighbors).intersection(set(mz_neighbors)))
+        duplicate_ions = tuple(node_table.index[duplicate_ions])
         duplicates_table.append((duplicate_ions, len(duplicate_ions)))
         
-    duplicates_table = pd.DataFrame(duplicates_table, columns = ["pool", "count"])
+    duplicates_table = list(set(duplicates_table))
+    duplicates_table = pd.DataFrame(duplicates_table, columns = ["pool", "length"])
+    duplicates_table = duplicates_table.sort_values('length', ascending=False, ignore_index= True)
+    duplicates_table = duplicates_table[duplicates_table['length'] > 1]
+
+    # Remove duplicate row
+    remaining_idx = duplicates_table.index.tolist()
+    keep_idx = list()
+    while len(remaining_idx) > 0 :
+        seed = remaining_idx.pop(0)
+        set_0 = set(duplicates_table.at[seed, 'pool'])
+        keep_idx.append(seed)
+        drop_idx = list()
+        for i in remaining_idx:
+            if len(set_0.intersection(duplicates_table.at[i, 'pool'])) > 0 :
+                drop_idx.append(i)
+        for i in drop_idx:
+            remaining_idx.remove(i)
     
-    duplicates_table = duplicates_table[duplicates_table['count'] > 1]
+    duplicates_table = duplicates_table.loc[keep_idx]
+    duplicates_table.reset_index(inplace = True, drop = True)
     
+    duplicates_idx = list()
     # Deal with non conflict duplicates (1 ion and its duplicate)
     duplicates_idx += find_duplicates_pairs(duplicates_table = duplicates_table,
                                             node_table = node_table,
@@ -156,6 +175,5 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
     
     # Return the list of dropped indices
     duplicates_idx.sort()
-    duplicates_idx = node_table.index[duplicates_idx]
     return duplicates_idx
     
