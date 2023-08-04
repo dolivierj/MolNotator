@@ -169,6 +169,8 @@ class Spectrum:
         return mgf_string
     def correct_charge(self, op):
         self.charge = op(int(re.sub("[^0-9]", "", self.charge))) 
+    def assume_charge(self):
+        self.charge = int(self.charge[-1] + self.charge[:-1] )
 
 
 
@@ -205,15 +207,19 @@ class Spectra:
     def correct_charge(self, ion_mode):
         if ion_mode == "NEG":
             op = operator.neg
+            for s in self.spectrum:
+                s.correct_charge(op)
         elif ion_mode == "POS":
             op = operator.pos
-        for s in self.spectrum:
-            s.correct_charge(op)
-            
-
-
-
-
+            for s in self.spectrum:
+                s.correct_charge(op)
+        elif ion_mode == "MIX":
+            for s in self.spectrum:
+                s.assume_charge()
+    
+    def pair_cosine(self, idx_1, idx_2, tolerance):
+        self.spectrum[idx_1]
+        return spectrum_cosine_score(self.spectrum[idx_1], self.spectrum[idx_2], tolerance)
 
 #--------------------------------------------------------------- MGF files ----
 def read_mgf_file(file_path : str, mz_field : str = "pepmass", rt_field : str = "rtinseconds", charge_field : str = "charge", ion_mode : str = None):
@@ -255,11 +261,11 @@ def read_mgf_file(file_path : str, mz_field : str = "pepmass", rt_field : str = 
                     field_list = list(set(field_list))
             
             elif current_spectrum: 
-                if mz_field in line.lower():
+                if mz_field.lower() == line.split('=')[0].lower():
                     current_spectrum.prec_mz = float(line.split('=')[1])
-                elif rt_field in line.lower():
+                elif rt_field.lower() == line.split('=')[0].lower():
                     current_spectrum.rt = float(line.split('=')[1])
-                elif charge_field in line.lower():
+                elif charge_field.lower() == line.split('=')[0].lower():
                     current_spectrum.charge = line.split('=')[1]
                 elif '=' in line:
                     key, value = line.split('=', 1)
