@@ -2,7 +2,8 @@
 import os
 from tqdm import tqdm
 import pandas as pd
-from MolNotator.utils import read_mgf_file, print_time, sample_slicer_export, parallel_export_sampslicer
+from matchms.importing import load_from_mgf
+from matchms.exporting import save_as_mgf
 
 def sample_slicer(params : dict, ion_mode : str):
     """Splits the original spectrum file into several files, one for each sample.
@@ -14,10 +15,8 @@ def sample_slicer(params : dict, ion_mode : str):
     otherwise the same exact same for each sample, i.e. "POS_sample_1" and 
     "NEG_sample_1".
     """
-    print(f"------- SAMPLE SLICER : {ion_mode} -------")
 
     # Load parameters
-    workers = params["workers"]
     if ion_mode == "NEG":
         csv_file= params['neg_csv']
         mgf_file= params['neg_mgf']
@@ -29,10 +28,8 @@ def sample_slicer(params : dict, ion_mode : str):
         in_path= params['pos_out_0']
         out_path= params['pos_out_1']
     else:
-        print_time('Error: ion mode must be either "NEG" or "POS"')
+        print('Ion mode must be either "NEG" or "POS"')
         return
-
-    
 
     # Create out folder
     if not os.path.exists(f'{out_path}') :
@@ -43,30 +40,22 @@ def sample_slicer(params : dict, ion_mode : str):
     
     # Get the sample list
     samples = pd.Series(csv_table.columns)
-    samples = samples[samples.str.contains(params['sample_pattern'])]
-    samples = list(samples.str.replace(params['sample_pattern'], '.mgf', regex = False))
-    csv_table.columns = csv_table.columns.str.replace(params['sample_pattern'], '.mgf', regex = False)
+    samples = samples[samples.str.contains(params['col_suffix'])]
+    samples = list(samples.str.replace(params['col_suffix'], '.mgf', regex = False))
+    csv_table.columns = csv_table.columns.str.replace(params['col_suffix'], '.mgf', regex = False)
     
     # MZmine mgf file
-    spectra = read_mgf_file(file_path = f'{in_path}{mgf_file}',
-                            ion_mode = ion_mode)
-
-    # Export data
-    if workers == 1 :
-        
-        print_time("Exporting MGF files...")
-        for i in tqdm(range(len(samples))):
-            sample_slicer_export(samples[i], csv_table, spectra, out_path)
-    else :
-        print_time("Exporting MGF files...")
-        parallel_export_sampslicer(workers = workers,
-                                   samples = samples,
-                                   csv_table = csv_table,
-                                   spectra = spectra,
-                                   out_path = out_path)
-        print_time("Export complete.")
+    mgf_file = list(load_from_mgf(f'{in_path}/{mgf_file}'))
     
+    # write the mgf files for each individual sample:
+    print('Slicing the MGF file into sample MGFs:')
+    for sample in tqdm(samples) :
+        new_mgf = list()
+        for i in csv_table.index :
+            if csv_table.loc[i, sample] > 0 :
+                new_mgf.append(mgf_file[csv_table.loc[i, "spec_id"]])
+        save_as_mgf(new_mgf, f'{out_path}{sample}')
+    return
     
-    
-
-
+if __name__ == '__main__':
+    sample_slicer()

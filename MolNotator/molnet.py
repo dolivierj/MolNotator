@@ -1,9 +1,11 @@
 import os
 import pandas as pd
+from matchms.importing import load_from_mgf
+from matchms.filtering import default_filters
+from matchms.similarity import ModifiedCosine
 import sys
 from tqdm import tqdm
 from MolNotator.others.global_functions import *
-from MolNotator.utils import read_mgf_file, spectrum_cosine_score
 
 def molnet(params : dict):
 
@@ -17,6 +19,8 @@ def molnet(params : dict):
     mass_error= params['mn_mass_error']
     cosine_threshold= params['mn_cosine_threshold']
     matched_peaks= params['mn_matched_peaks']
+    
+    modified_cosine = ModifiedCosine(tolerance=mass_error)
     
     node_table = pd.read_csv(in_path + 'node_table.csv', index_col = "Index")
     edge_table = pd.read_csv(in_path + 'edge_table.csv', index_col = "Index")
@@ -33,7 +37,7 @@ def molnet(params : dict):
     kept_nodes.sort()
     node_table = node_table.loc[kept_nodes]
     node_table[mz_field] = node_table[mz_field].round(4)
-    edge_table = pd.concat([kept_edges_1, kept_edges_2], ignore_index = True)
+    edge_table = kept_edges_1.append(kept_edges_2, ignore_index = True)
     
     node_table.to_csv(out_path_full + "node_table_simple.csv", index_label = "Index")
     edge_table.to_csv(out_path_full + "edge_table_simple.csv", index_label = "Index")
@@ -43,13 +47,15 @@ def molnet(params : dict):
     if params['process_mode'] == "POS":
         mgf_path_pos= params['pos_out_0']
         mgf_file_pos= params['pos_mgf']
-        mgf = read_mgf_file(file_path = mgf_path_pos + mgf_file_pos)
+        mgf = list(load_from_mgf(mgf_path_pos + mgf_file_pos))
+        mgf = [Spectrum_processing(s) for s in mgf]
         molnet_single(node_table, edge_table, mgf, params['process_mode'], params)
         return
     elif params['process_mode'] == "NEG" :
         mgf_path_neg= params['neg_out_0']
         mgf_file_neg= params['neg_mgf']
-        mgf = read_mgf_file(file_path = mgf_path_neg + mgf_file_neg) 
+        mgf = list(load_from_mgf(mgf_path_neg + mgf_file_neg))
+        mgf = [Spectrum_processing(s) for s in mgf]
         molnet_single(node_table, edge_table, mgf, params['process_mode'], params)
         return
 
@@ -59,8 +65,10 @@ def molnet(params : dict):
     mgf_file_neg= params['neg_mgf']
     mgf_file_pos= params['pos_mgf']
 
-    mgf_pos = read_mgf_file(file_path = mgf_path_pos + mgf_file_pos)
-    mgf_neg = read_mgf_file(file_path = mgf_path_neg + mgf_file_neg)  
+    mgf_pos = list(load_from_mgf(mgf_path_pos + mgf_file_pos))
+    mgf_neg = list(load_from_mgf(mgf_path_neg + mgf_file_neg))    
+    mgf_pos = [Spectrum_processing(s) for s in mgf_pos]
+    mgf_neg = [Spectrum_processing(s) for s in mgf_neg]
        
     # Do molecular families clusters:
     neutral_nodes = list(node_table.index[node_table['status'].str.contains('neutral')])
@@ -91,16 +99,13 @@ def molnet(params : dict):
                 if mode == "POS" : mgf_list = mgf_pos
                 else: mgf_list = mgf_neg
                 for ion_1 in tmp_table_1.index:
-                    spectrum_1 = mgf_list.spectrum[tmp_table_1.loc[ion_1, "spec_id"]]
+                    spectrum_1 = mgf_list[tmp_table_1.loc[ion_1, "spec_id"]]
                     adduct_1 = tmp_table_1.loc[ion_1, 'adduct']
                     for ion_2 in tmp_table_2.index:
                         adduct_2 = tmp_table_2.loc[ion_2, 'adduct']
                         if adduct_1 != adduct_2 : continue
-                        spectrum_2 = mgf_list.spectrum[tmp_table_2.loc[ion_2, "spec_id"]]
-                        score, n_matches = spectrum_cosine_score(spectrum1=spectrum_1,
-                                                                 spectrum2=spectrum_2,
-                                                                 tolerance = mass_error)
-
+                        spectrum_2 = mgf_list[tmp_table_2.loc[ion_2, "spec_id"]]
+                        score, n_matches = modified_cosine.pair(spectrum_1, spectrum_2)
                         if n_matches < matched_peaks : score = 0.0
                         tmp_scores.append((score, n_matches))
             tmp_scores = pd.DataFrame(tmp_scores, columns = ['cos', 'matches'])

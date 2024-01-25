@@ -1,9 +1,11 @@
 import os
 import pandas as pd
 import sys
+from matchms.importing import load_from_mgf
+from matchms.filtering import default_filters
+from matchms.similarity import ModifiedCosine
 from tqdm import tqdm
 from MolNotator.others.global_functions import *
-from MolNotator.utils import read_mgf_file, spectrum_cosine_score
 
 def cosiner(params : dict):
     
@@ -84,18 +86,20 @@ def cosiner(params : dict):
         pos_csv_file= params['pos_csv']
         neg_mgf_file= params['neg_mgf']
         pos_mgf_file= params['pos_mgf']
-        
-        
-        neg_mgf = read_mgf_file(mzmine_path_neg + neg_mgf_file)
-        pos_mgf = read_mgf_file(mzmine_path_pos + pos_mgf_file)
+        neg_mgf = list(load_from_mgf(mzmine_path_neg + neg_mgf_file))
+        pos_mgf = list(load_from_mgf(mzmine_path_pos + pos_mgf_file))
+        neg_mgf = [Spectrum_processing(s) for s in neg_mgf]
+        pos_mgf = [Spectrum_processing(s) for s in pos_mgf]
     
         # Make a Series with MGF indexes as data and feature IDs as indexes
-        neg_mgf_data = neg_mgf.to_data_frame()
-        neg_mgf_data = pd.Series(neg_mgf_data.index, index=neg_mgf_data[idx_column])
+        neg_mgf_data = pd.Series(dtype = int)
+        for i in range(len(neg_mgf)):
+            neg_mgf_data.loc[int(neg_mgf[i].get(idx_column))] = i
         
-        pos_mgf_data = pos_mgf.to_data_frame()
-        pos_mgf_data = pd.Series(pos_mgf_data.index, index=pos_mgf_data[idx_column])
-        
+        pos_mgf_data = pd.Series(dtype = int)
+        for i in range(len(pos_mgf)):
+            pos_mgf_data.loc[int(pos_mgf[i].get(idx_column))] = i
+    
     
     # Load node and edge tables
     
@@ -138,8 +142,8 @@ def cosiner(params : dict):
     full_cosine = []
     full_matches = []
     for i in tqdm(remains_ions_neg):
-        i_id = int(node_table.loc[i, "spec_id"])
-        i_spectrum = neg_mgf.spectrum[neg_mgf_data[i_id]]
+        i_id = int(node_table.loc[i, idx_column])
+        i_spectrum = neg_mgf[neg_mgf_data[i_id]]
         tmp_cluster_list = []
         tmp_id_list = []
         tmp_cosine_list = []
@@ -152,10 +156,8 @@ def cosiner(params : dict):
             id_list = list()
             prod_list = list()
             for k in ion_list:
-                score, n_matches = spectrum_cosine_score(spectrum1=i_spectrum,
-                                                         spectrum2=neg_mgf.spectrum[k],
-                                                         tolerance = mass_error)
-                id_list.append(int(neg_mgf.spectrum[k].metadata[idx_column]))
+                score, n_matches = modified_cosine.pair(i_spectrum, neg_mgf[k])
+                id_list.append(int(neg_mgf[k].get(idx_column)))
                 cos_list.append(score)
                 match_list.append(n_matches)
                 prod_list.append(score * n_matches)
@@ -184,8 +186,8 @@ def cosiner(params : dict):
         cluster_ion_list[i] = '|'.join(pos_node_table.loc[tmp_rows, 'spec_id'].dropna().astype(int).astype(str))
     cluster_ion_list.sort_index(inplace = True)
     for i in tqdm(remains_ions_pos):
-        i_id = int(node_table.loc[i, "spec_id"])
-        i_spectrum = pos_mgf.spectrum[pos_mgf_data[i_id]]
+        i_id = int(node_table.loc[i, idx_column])
+        i_spectrum = pos_mgf[pos_mgf_data[i_id]]
         tmp_cluster_list = []
         tmp_id_list = []
         tmp_cosine_list = []
@@ -198,10 +200,8 @@ def cosiner(params : dict):
             id_list = list()
             prod_list = list()
             for k in ion_list:
-                score, n_matches = spectrum_cosine_score(spectrum1=i_spectrum,
-                                                         spectrum2=pos_mgf.spectrum[k],
-                                                         tolerance = mass_error)
-                id_list.append(int(pos_mgf.spectrum[k].metadata[idx_column]))
+                score, n_matches = modified_cosine.pair(i_spectrum, pos_mgf[k])
+                id_list.append(int(pos_mgf[k].get(idx_column)))
                 cos_list.append(score)
                 match_list.append(n_matches)
                 prod_list.append(score * n_matches)
@@ -265,38 +265,34 @@ def cosiner(params : dict):
         while len(pos_ions) > 1 :
             ion_1 = pos_ions[0]
             ion_1_mgf_idx = int(node_table.loc[ion_1, "spec_id"])
-            ion_1_spectrum = pos_mgf.spectrum[ion_1_mgf_idx]
+            ion_1_spectrum = pos_mgf[ion_1_mgf_idx]
             ion_1_rt = node_table.loc[ion_1, rt_field]
             ion_1_mz = node_table.loc[ion_1, mz_field]
             pos_ions.remove(ion_1)
             for ion_2 in pos_ions:
                 ion_2_mgf_idx = int(node_table.loc[ion_2, "spec_id"])
-                ion_2_spectrum = pos_mgf.spectrum[ion_2_mgf_idx]
+                ion_2_spectrum = pos_mgf[ion_2_mgf_idx]
                 ion_2_rt = node_table.loc[ion_2, rt_field]
                 ion_2_mz = node_table.loc[ion_2, mz_field]
                 rt_gap = round(ion_1_rt - ion_2_rt, 3)
                 mz_gap = round(ion_1_mz - ion_2_mz, 4)
-                score, n_matches = spectrum_cosine_score(spectrum1=ion_1_spectrum,
-                                                         spectrum2=ion_2_spectrum,
-                                                         tolerance = mass_error)
+                score, n_matches = modified_cosine.pair(ion_1_spectrum, ion_2_spectrum)
                 tmp_edges.append((ion_1, ion_2, round(score, 2), rt_gap, mz_gap, "pos"))
         while len(neg_ions) > 1 :
             ion_1 = neg_ions[0]
             ion_1_mgf_idx = int(node_table.loc[ion_1, "spec_id"])
-            ion_1_spectrum = neg_mgf.spectrum[ion_1_mgf_idx]
+            ion_1_spectrum = neg_mgf[ion_1_mgf_idx]
             ion_1_rt = node_table.loc[ion_1, rt_field]
             ion_1_mz = node_table.loc[ion_1, mz_field]
             neg_ions.remove(ion_1)
             for ion_2 in neg_ions:
                 ion_2_mgf_idx = int(node_table.loc[ion_2, "spec_id"])
-                ion_2_spectrum = neg_mgf.spectrum[ion_2_mgf_idx]
+                ion_2_spectrum = neg_mgf[ion_2_mgf_idx]
                 ion_2_rt = node_table.loc[ion_2, rt_field]
                 ion_2_mz = node_table.loc[ion_2, mz_field]
                 rt_gap = round(ion_1_rt - ion_2_rt, 3)
                 mz_gap = round(ion_1_mz - ion_2_mz, 4)
-                score, n_matches = spectrum_cosine_score(spectrum1=ion_1_spectrum,
-                                                         spectrum2=ion_2_spectrum,
-                                                         tolerance = mass_error)
+                score, n_matches = modified_cosine.pair(ion_1_spectrum, ion_2_spectrum)
                 tmp_edges.append((ion_1, ion_2, round(score, 2), rt_gap, mz_gap, "neg"))
         for edge in tmp_edges:
             node_1 = edge[0]
@@ -343,9 +339,7 @@ def cosiner(params : dict):
         remains_ions_neg_mgf.remove(ion_i_mgf)
         for ion_j in remains_ions_neg:
             ion_j_mgf = remains_ions_neg_mgf[remains_ions_neg.index(ion_j)]
-            score, n_matches = spectrum_cosine_score(spectrum1=neg_mgf.spectrum[ion_i_mgf],
-                                                     spectrum2=neg_mgf.spectrum[ion_j_mgf],
-                                                     tolerance = mass_error)
+            score, n_matches = modified_cosine.pair(neg_mgf[ion_i_mgf], neg_mgf[ion_j_mgf])
             singleton_clusters.append((ion_i, ion_j, score, n_matches, "NEG"))
 
     # Process POS data:
@@ -360,11 +354,8 @@ def cosiner(params : dict):
         remains_ions_pos_mgf.remove(ion_i_mgf)
         for ion_j in remains_ions_pos:
             ion_j_mgf = remains_ions_pos_mgf[remains_ions_pos.index(ion_j)]
-            score, n_matches = spectrum_cosine_score(spectrum1=pos_mgf.spectrum[ion_i_mgf],
-                                                     spectrum2=pos_mgf.spectrum[ion_j_mgf],
-                                                     tolerance = mass_error)
-            singleton_clusters.append((ion_i, ion_j, score, n_matches, "POS"))
-    
+            score, n_matches = modified_cosine.pair(pos_mgf[ion_i_mgf], pos_mgf[ion_j_mgf])
+            singleton_clusters.append((ion_i, ion_j, score, n_matches, "POS"))    
     singleton_clusters = pd.DataFrame(singleton_clusters, columns = ['node_1', 'node_2', 'cos', 'matches', 'ion_mode'])
     singleton_clusters = singleton_clusters[singleton_clusters['cos'] >= cosiner_threshold]
     singleton_clusters = singleton_clusters[singleton_clusters['matches'] >= matched_peaks]
@@ -444,6 +435,7 @@ def cosiner(params : dict):
     if purge_empty_spectra :
         node_table, edge_table = Spectrum_purge(ion_mode = "POS", node_table = node_table, edge_table = edge_table, mgf_file = pos_mgf)
         node_table, edge_table = Spectrum_purge(ion_mode = "NEG", node_table = node_table, edge_table = edge_table, mgf_file = neg_mgf)
+
         
     node_table[mz_field] = node_table[mz_field].round(4)
     node_table[rt_field] =  node_table[rt_field].round(3)
