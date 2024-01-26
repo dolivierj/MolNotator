@@ -3,11 +3,50 @@ import os
 import pandas as pd
 from matchms.importing import load_from_mgf
 from matchms.filtering import default_filters
-from matchms.exporting import save_as_mgf
 from pandas.core.common import flatten
 from MolNotator.others.spectrum_extractor import spectrum_extractor
 from MolNotator.others.duplicate_finder import duplicate_finder
 
+
+def export_to_mgf(spectra, out_path, ion_mode) :
+    mgf_str = list()
+    for spectrum in spectra:
+        
+        peaks = [[a, b] for a, b in zip(spectrum.peaks.mz, spectrum.peaks.intensities)]
+        peaks = [' '.join(list(map(str, p))) + '\n' for p in peaks]
+        peaks = ''.join(peaks)
+        
+        charge = spectrum.metadata['charge'] 
+        
+        if isinstance(charge, list):
+            charge = charge[0]
+        
+        if not isinstance(charge, str):
+            if charge < 0 :
+                charge = str(abs(charge)) + '-'
+            else:
+                charge = str(abs(charge)) + '+'
+        
+        new_entry = ""
+        new_entry += "BEGIN IONS\n"
+        new_entry += "PEPMASS=" + str(spectrum.metadata['pepmass'][0]) + "\n"
+        new_entry += "RTINSECONDS=" + str(spectrum.metadata['rtinseconds']) + "\n"
+        new_entry += "MSLEVEL=" + spectrum.metadata['mslevel'] + "\n"
+        new_entry += "CHARGE=" + charge + "\n"
+        new_entry += "FEATURE_ID=" + spectrum.metadata['feature_id'] + "\n"
+        new_entry += "SCANS=" + spectrum.metadata['scans'] + "\n"
+        new_entry += "IONMODE=" + ion_mode + "\n"
+        new_entry += "PRECURSOR_MZ=" + str(spectrum.metadata['pepmass'][0]) + "\n"
+        new_entry += peaks
+        new_entry += "END IONS\n\n"
+        mgf_str.append(new_entry)
+    
+    mgf_str = ''.join(mgf_str)
+    
+    with open(out_path, "w") as f:
+        f.write(mgf_str)
+    
+    return 
 
 def Spectrum_processing(s):
     s = default_filters(s)
@@ -76,7 +115,7 @@ def duplicate_filter(params : dict, ion_mode : str):
     node_table.drop(drop_cols, axis = 1, inplace = True)
     node_table = csv_file.merge(node_table, left_index = True, right_index = True)
     node_table[f'{rt_field}'] = node_table[f'{rt_field}'].astype(float)
-    node_table[f'{mz_field}'] = node_table[f'{mz_field}'].astype(float)
+    node_table['row m/z'] = node_table['row m/z'].astype(float)
     
     # Correct rt unit from m to s if relevant
     if params['rt_unit'] == 'm':
@@ -88,7 +127,7 @@ def duplicate_filter(params : dict, ion_mode : str):
     # If this step must be skipped :
     if params['df_skip'] :
         node_table.to_csv(f'{out_path}{csv_name}')
-        save_as_mgf(spectrum_list, f'{out_path}{spectrum_file}')
+        export_to_mgf(spectra = spectrum_list, out_path = f'{out_path}{spectrum_file}', ion_mode = ion_mode)
         return
     
     # Filtering the MGF file
@@ -109,7 +148,7 @@ def duplicate_filter(params : dict, ion_mode : str):
     
     # Export the data
     print('Exporting MGF and CSV files...')
-    save_as_mgf(mgf_file_new, f'{out_path}{spectrum_file}')
+    export_to_mgf(spectra = mgf_file_new, out_path = f'{out_path}{spectrum_file}', ion_mode = ion_mode)
     node_table_new.to_csv(f'{out_path}{csv_name}', index_label = index_col)
     perc = round(100*(len(dropped_ions)/len(spectrum_list)),1)
     print('Export finished.')

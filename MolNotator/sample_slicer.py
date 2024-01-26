@@ -3,7 +3,9 @@ import os
 from tqdm import tqdm
 import pandas as pd
 from matchms.importing import load_from_mgf
-from matchms.exporting import save_as_mgf
+
+## NEW
+from MolNotator.duplicate_filter import export_to_mgf
 
 def sample_slicer(params : dict, ion_mode : str):
     """Splits the original spectrum file into several files, one for each sample.
@@ -54,8 +56,5 @@ def sample_slicer(params : dict, ion_mode : str):
         for i in csv_table.index :
             if csv_table.loc[i, sample] > 0 :
                 new_mgf.append(mgf_file[csv_table.loc[i, "spec_id"]])
-        save_as_mgf(new_mgf, f'{out_path}{sample}')
+        export_to_mgf(spectra = new_mgf, out_path = f'{out_path}{sample}', ion_mode = ion_mode)
     return
-    
-if __name__ == '__main__':
-    sample_slicer()

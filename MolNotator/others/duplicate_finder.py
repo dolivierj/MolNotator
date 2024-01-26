@@ -59,10 +59,10 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
             pool_size = len(ion_pool)
             min_rt = pool_table[f'{rt_field}'].min()
             max_rt = pool_table[f'{rt_field}'].max()
-            min_mz = pool_table[f'{mz_field}'].min()
-            max_mz = pool_table[f'{mz_field}'].max()
+            min_mz = pool_table['row m/z'].min()
+            max_mz = pool_table['row m/z'].max()
             pool_table = node_table[node_table[f'{rt_field}'].between(min_rt - rt_error,max_rt + rt_error)]
-            pool_table = pool_table[pool_table[f'{mz_field}'].between(min_mz - mass_error, max_mz + mass_error)]
+            pool_table = pool_table[pool_table['row m/z'].between(min_mz - mass_error, max_mz + mass_error)]
             ion_pool = list(pool_table.index)
             
         # Refresh ions_idx with the duplicates found (ion_pool)
@@ -74,12 +74,12 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
             ion_1 = ion_pool[0]
             specid_1 = node_table.loc[ion_1, 'spec_id']
             rt_1 = pool_table.loc[ion_1, f'{rt_field}']
-            mz_1 = pool_table.loc[ion_1, f'{mz_field}']
+            mz_1 = pool_table.loc[ion_1, 'row m/z']
             ion_pool.remove(ion_1)
             for ion_2 in ion_pool:
                 specid_2 = node_table.loc[ion_2, 'spec_id']
                 rt_2 = pool_table.loc[ion_2, f'{rt_field}']
-                mz_2 = pool_table.loc[ion_2, f'{mz_field}']
+                mz_2 = pool_table.loc[ion_2, 'row m/z']
                 score, n_matches = modified_cosine.pair(spectrum_list[specid_1],
                                                         spectrum_list[specid_2])
                 cos_table.append((ion_1, ion_2, score, n_matches, abs(mz_1 - mz_2),
@@ -94,7 +94,7 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
         while len(ion_pool) > 0 :
             ion_seed = pool_table.loc[ion_pool, 'TIC'].idxmax()
             seed_rt = pool_table.loc[ion_seed, f"{rt_field}"]
-            seed_mz = pool_table.loc[ion_seed, f"{mz_field}"]
+            seed_mz = pool_table.loc[ion_seed, 'row m/z']
 
             candidates = cos_table.index[cos_table['ion_1'] == ion_seed].tolist() + cos_table.index[cos_table['ion_2'] == ion_seed].tolist()
             candidates = cos_table.loc[candidates].index[cos_table.loc[candidates, 'cos'] >= cos_threshold] 
@@ -110,7 +110,7 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
             
             # Filter again based on RT and MZ threshold around the seed ion
             candidates = candidates[candidates[f'{rt_field}'].between(seed_rt - rt_error, seed_rt + rt_error, inclusive = "both")]
-            candidates = candidates[candidates[f'{mz_field}'].between(seed_mz - mass_error, seed_mz + mass_error, inclusive = "both")]
+            candidates = candidates[candidates['row m/z'].between(seed_mz - mass_error, seed_mz + mass_error, inclusive = "both")]
             candidates = candidates.index.tolist()
             ion_pool.remove(ion_seed)
             ion_pool = list(set(ion_pool) - set(candidates))
@@ -159,5 +159,3 @@ def duplicate_finder(node_table, spectrum_list, params, ion_mode):
     
     return duplicate_table
 
-if __name__ == '__main__':
-    duplicate_finder()
